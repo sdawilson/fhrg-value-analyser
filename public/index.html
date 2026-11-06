@@ -343,9 +343,12 @@ details.guide .gid { display: inline-block; min-width: 3rem; color: var(--ink-so
   --c-band: #e4e9ef;       /* benchmark middle half */
   --grid: #e4e9ef;
   --axis: #a9b6c7;
-  /* answer tints, poor (red) to good (blue) through a neutral middle */
-  --t0: #fbe4e2; --t25: #fbefe9; --t50: #f1f3f6; --t75: #e6eefa; --t100: #d6e5f8;
-  --t0-ink: #8f2d24; --t100-ink: #1c4f8f;
+  /* answer tints for performance and confidence: muted red (low) to muted green (high), through a pale sand */
+  --t0: #f3d8d4; --t25: #f6e2d2; --t50: #f3eedb; --t75: #e1edd9; --t100: #cde3d1;
+  --t0-ink: #8f2d24; --t100-ink: #2f6a46;
+  /* importance, for weightings and opportunity: the site's navy, paler for less */
+  --n25: #eef2f7; --n50: #dfe7f0; --n75: #ccd9e7; --n100: #b8cade;
+  --bar: #9db2c8; --bar-track: #edf1f5; /* priority bars: a muted navy */
 }
 html, body { background: var(--white); }
 .wrap { padding-left: max(var(--gutter), env(safe-area-inset-left, 0px)); padding-right: max(var(--gutter), env(safe-area-inset-right, 0px)); }
@@ -483,13 +486,25 @@ dl.guide dt { font-weight: 700; } dl.guide dd { margin: 0.15rem 0 0; }
 .ov-mark { font-size: 0.7rem; font-weight: 800; color: var(--warn); margin-left: 0.25rem; }
 select.t0 { background-color: var(--t0); } select.t25 { background-color: var(--t25); } select.t50 { background-color: var(--t50); }
 select.t75 { background-color: var(--t75); } select.t100 { background-color: var(--t100); }
+select.n25 { background-color: var(--n25); } select.n50 { background-color: var(--n50); } select.n75 { background-color: var(--n75); } select.n100 { background-color: var(--n100); }
+/* a priority: its number, with a thin bar beneath as a share of the largest */
+.pri-bar { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.pbar { display: block; width: 100%; height: 5px; border-radius: 3px; background: var(--bar-track); overflow: hidden; }
+.pbar i { display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: var(--bar); border-radius: 3px; }
 select.pending { border-color: #c98f16; border-style: dashed; }
+/* a locked weighting reads as a value, not a dimmed control */
+.f-row select.w:disabled { opacity: 1; color: var(--ink); -webkit-appearance: none; appearance: none; cursor: default; padding-right: 0.5rem; border-color: transparent; }
+.f-row select.w:disabled:not([class*=" n"]) { background-color: transparent; }
+.lock-box { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.92rem; }
+.lock-box .check { margin: 0; }
+.lock-warn { color: var(--warn); font-weight: 600; font-size: 0.88rem; }
 .lbl-mobile { display: none; font-size: 0.75rem; color: var(--ink-soft); font-weight: 600; }
 @media (max-width: 1100px) {
   .f-head { display: none; }
   .f-row, .sc.show-bench .f-row { grid-template-columns: 3rem minmax(0, 1fr) auto; grid-template-areas: "id name more" "ctl ctl ctl"; padding: 0.7rem 0.8rem; }
   .f-row .c-id { grid-area: id; } .f-row .c-name { grid-area: name; } .f-row .more { grid-area: more; }
   .f-row .ctl { grid-area: ctl; display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.5rem; }
+  .f-row .pri { align-items: stretch; text-align: left; } .f-row .pri .lbl-mobile { display: block; }
   .f-row.heading .ctl:empty { display: none; }
   .lbl-mobile { display: block; }
   .dim-head { grid-template-columns: auto minmax(0, 1fr); }
@@ -554,6 +569,7 @@ select.pending { border-color: #c98f16; border-style: dashed; }
 .band-label { font-size: 0.82rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 4px; background: rgba(255, 255, 255, 0.18); }
 .prio-table td.nm { max-width: 26rem; }
 .prio-table .why { display: block; font-size: 0.82rem; color: var(--ink-soft); }
+.prio-table .prio-v { min-width: 3.5rem; margin-left: auto; }
 .rank { display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--navy); color: var(--white); font-size: 0.8rem; font-weight: 800; }
 .heat td.v { text-align: center; font-variant-numeric: tabular-nums; font-weight: 700; }
 .heat th.opt { text-align: center; white-space: normal; min-width: 7rem; }
@@ -945,6 +961,8 @@ const VA = (() => {
           break;
         }
         case "settings": {
+          const lock = trimmed.match(/^Weightings Locked:= ?(.*)$/);
+          if (lock) { doc.weightsLocked = !/^(no|false|0)$/i.test(lock[1].trim()); break; }
           const m = trimmed.match(/^Template (Levels|Description):= ?(.*)$/);
           if (m && m[1] === "Levels") doc.levels = m[2].trim();
           else if (m) doc.description = m[2].replace(/<lf>/g, "\n").trim();
@@ -1054,6 +1072,7 @@ const VA = (() => {
       guidance: {},
       levels: "",
       description: "",
+      weightsLocked: true,
       summaryLines: [],
       scales: {},
       rows: [],
@@ -1339,12 +1358,13 @@ const VA = (() => {
       }
       out.push("End Section");
     }
-    if (doc.kind === "template" && (doc.levels || doc.description)) {
-      out.push("Begin Template Settings");
-      if (doc.levels) out.push(`   Template Levels:= ${doc.levels}`);
-      if (doc.description) out.push(`   Template Description:= ${flat(doc.description)}`);
-      out.push("End Section");
-    }
+    // weightings are locked unless a file says otherwise, so only an unlocked one is written; an assessment
+    // carries its template's setting
+    const settings = [];
+    if (doc.kind === "template" && doc.levels) settings.push(`   Template Levels:= ${doc.levels}`);
+    if (doc.kind === "template" && doc.description) settings.push(`   Template Description:= ${flat(doc.description)}`);
+    if (doc.weightsLocked === false) settings.push("   Weightings Locked:= No");
+    if (settings.length) out.push("Begin Template Settings", ...settings, "End Section");
     for (const s of doc.extraSections || []) out.push(`Begin ${s.name}`, ...s.lines, "End Section");
     return out.join("\r\n") + "\r\n";
   }
@@ -2268,6 +2288,11 @@ function band(v) {
   return "Poor";
 }
 const tint = (v) => (isNum(v) ? "t" + Math.max(0, Math.min(100, Math.round(v / 25) * 25)) : "");
+// importance (a weighting or opportunity) as a navy shade: none for nothing, then paler to stronger
+const cellBg = (cls) => (cls ? `background:var(--${cls})` : "");
+const shade = (v) => (isNum(v) && v > 0 ? "n" + Math.max(25, Math.min(100, Math.round(v / 25) * 25)) : "");
+// a priority's bar, as a share of the largest priority in the assessment
+const barShare = (p, max) => (isNum(p) && p > 0 && max > 0 ? Math.min(1, p / max).toFixed(3) : 0);
 
 const ICON = {
   plus: '<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5h2v14h-2zM5 11h14v2H5z" fill="currentColor"/></svg>',
@@ -3035,6 +3060,10 @@ function rowSub(i) {
   else bits.push("no weighting: not scored");
   return bits.join(" · ");
 }
+function priorityMax() {
+  return Math.max(0, ...A.ws.calc.rows.map((x) => (isNum(x.priority) ? x.priority : 0)));
+}
+const oppValue = (r) => (isNum(r.oppOv) ? r.oppOv : VA.bracketValue(r.opp));
 function topPriorities(n = 10) {
   const c = A.ws.calc;
   return new Set(c.rows.map((x, i) => [i, x.priority]).filter(([, p]) => isNum(p) && p > 0).sort((a, b) => b[1] - a[1]).slice(0, n).map(([i]) => i));
@@ -3063,6 +3092,8 @@ function renderScorecard() {
       ${ws.bench ? `<span class="bench-pill">Benchmark: <b>${esc(ws.bench.label)}</b> <a href="${href(`/a/${ws.id || "local"}/benchmark`)}" data-nav>Change</a></span>` : `<a class="small" href="${href(`/a/${ws.id || "local"}/benchmark`)}" data-nav>Add a benchmark</a>`}
       <button class="btn small quiet" type="button" id="sc-collapse">${ws.collapsed.size ? "Expand all" : "Collapse all"}</button>
     </div>
+    <div class="lock-box"><label class="check"><input type="checkbox" id="sc-lock" ${doc.weightsLocked !== false ? "checked" : ""}> <span>Weightings locked</span></label>
+      ${doc.weightsLocked === false ? `<span class="lock-warn" id="sc-lock-warn">Unlocked: overall and dimension scores may not compare like for like in benchmarking.</span>` : `<span class="small muted">The template's weightings, so scores compare like for like in benchmarking.</span>`}</div>
     <div class="sc ${ws.bench ? "show-bench" : ""}" id="sc">
     ${dims.map((d, di) => {
       const idx = doc.rows.map((r, i) => (r.dimension === d ? i : -1)).filter((i) => i >= 0);
@@ -3084,6 +3115,16 @@ function renderScorecard() {
   sc.addEventListener("click", onScClick);
   $("#sc-q").addEventListener("input", (e) => { ws.filter.q = e.target.value; applyFilter(); });
   $$("[data-show]").forEach((b) => b.addEventListener("click", () => { ws.filter.show = b.dataset.show; $$("[data-show]").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); applyFilter(); }));
+  $("#sc-lock").addEventListener("change", async (e) => {
+    if (e.target.checked) { doc.weightsLocked = true; markDirty(); renderScorecardKeepScroll(); return; }
+    e.target.checked = true;
+    const go = await confirmBox("Unlock the weightings?", "Unlocking weightings may break benchmarking. Other authorities' assessments use the template's weightings, so if you change them, your overall and dimension scores won't compare like for like. Each factor's answers still compare.", "Unlock weightings");
+    if (!go) return;
+    doc.weightsLocked = false;
+    markDirty();
+    renderScorecardKeepScroll();
+    toast("Weightings unlocked.", 4000);
+  });
   $("#sc-collapse").addEventListener("click", () => {
     if (ws.collapsed.size) ws.collapsed.clear(); else dims.forEach((d) => ws.collapsed.add(d));
     renderScorecard();
@@ -3096,7 +3137,7 @@ function rowHtml(i, top) {
   const pad = `padding-left:${Math.max(0, r.tier - (x.heading ? 0 : 1)) * 1.1}rem`;
   if (x.heading) {
     return `<div class="f-row heading t${Math.min(r.tier, 2)}" data-i="${i}"><span class="c-id">${esc(r.id ?? "")}</span><span class="c-name" style="${pad};${tree ? "" : "grid-column: 2 / -1"}"><span class="nm">${esc(r.factor)}</span>${tree ? `<span class="sub" data-sub>${rowSub(i)}</span>` : ""}</span>
-      ${tree ? `<span class="ctl"><select class="w" data-k="weight" aria-label="Weighting for ${esc(r.factor)}">${weightOptions(r.weight)}</select></span>` : ""}</div>`;
+      ${tree ? `<span class="ctl"><select class="w ${shade(r.weight)}" data-k="weight" aria-label="Weighting for ${esc(r.factor)}" ${doc.weightsLocked !== false ? "disabled" : ""}>${weightOptions(r.weight)}</select></span>` : ""}</div>`;
   }
   const scale = VA.scaleFor(doc, r.range);
   const sv = isNum(r.scoreOv) ? r.scoreOv : VA.bracketValue(r.score), cv = isNum(r.confOv) ? r.confOv : VA.bracketValue(r.conf);
@@ -3107,12 +3148,12 @@ function rowHtml(i, top) {
     <span class="c-id">${esc(r.id ?? "")}</span>
     <span class="c-name" style="${pad}"><span class="nm">${esc(r.factor)}</span><span class="sub" data-sub>${rowSub(i)}</span>${VA.guidanceFor(doc, r) ? `<button class="guide-btn" type="button" data-guide="${i}">Scoring guidance</button>` : ""}</span>
     <span class="ctl">
-      <label><span class="lbl-mobile">Weighting</span><select class="w" data-k="weight" aria-label="Weighting for ${esc(r.factor)}">${weightOptions(r.weight)}</select></label>
+      <label><span class="lbl-mobile">Weighting</span><select class="w ${shade(r.weight)}" data-k="weight" aria-label="Weighting for ${esc(r.factor)}" ${doc.weightsLocked !== false ? "disabled" : ""}>${weightOptions(r.weight)}</select></label>
       <label><span class="lbl-mobile">Performance</span><select data-k="score" class="${tint(sv)} ${!r.score && pending ? "pending" : ""}" aria-label="Performance for ${esc(r.factor)}">${answerOptions(scale, r.score)}</select></label>
       <span class="c-b" data-bench>${benchCell(i)}</span>
       <label><span class="lbl-mobile">Confidence</span><select data-k="conf" class="${tint(cv)}" aria-label="Confidence for ${esc(r.factor)}">${answerOptions(VA.CONFIDENCE, r.conf)}</select></label>
-      <label><span class="lbl-mobile">Opportunity</span><select data-k="opp" aria-label="Opportunity to improve ${esc(r.factor)}">${answerOptions(VA.OPPORTUNITY, r.opp)}</select></label>
-      <span class="pri ${top.has(i) ? "hi" : ""}" data-pri title="Weighted priority">${isNum(x.priority) ? f1(x.priority) : "–"}</span>
+      <label><span class="lbl-mobile">Opportunity</span><select data-k="opp" class="${shade(oppValue(r))}" aria-label="Opportunity to improve ${esc(r.factor)}">${answerOptions(VA.OPPORTUNITY, r.opp)}</select></label>
+      <span class="pri pri-bar ${top.has(i) ? "hi" : ""}" data-pri style="--p:${barShare(x.priority, priorityMax())}" title="Weighted priority"><span class="lbl-mobile">Priority</span><span class="pv">${isNum(x.priority) ? f1(x.priority) : "–"}</span><span class="pbar" aria-hidden="true"><i></i></span></span>
     </span>
     <button class="note-btn more ${hasNote ? "has" : ""}" type="button" data-more="${i}" aria-expanded="${open}">${hasNote ? "Notes ✓" : "Notes"}</button>
   </div>${open ? drawerHtml(i) : ""}`;
@@ -3157,6 +3198,7 @@ function onScChange(e) {
   if (!Number.isInteger(i)) return;
   const r = A.ws.doc.rows[i];
   const k = t.dataset.k;
+  if (k === "weight" && A.ws.doc.weightsLocked !== false) { renderScorecardKeepScroll(); return; }
   if (k === "weight") r.weight = t.value === "" ? null : Number(t.value);
   else if (k === "score" || k === "conf" || k === "opp") r[k] = t.value;
   else if (t.dataset.ov) {
@@ -3218,9 +3260,10 @@ function refreshRow(i) {
   const ws = A.ws, r = ws.doc.rows[i];
   wsCalc();
   const sv = isNum(r.scoreOv) ? r.scoreOv : VA.bracketValue(r.score), cv = isNum(r.confOv) ? r.confOv : VA.bracketValue(r.conf);
-  const s = $('select[data-k="score"]', row), c = $('select[data-k="conf"]', row);
+  const s = $('select[data-k="score"]', row), c = $('select[data-k="conf"]', row), o = $('select[data-k="opp"]', row);
   if (s) s.className = `${tint(sv)} ${!r.score && isNum(r.weight) && r.weight > 0 ? "pending" : ""}`;
   if (c) c.className = tint(cv);
+  if (o) o.className = shade(oppValue(r));
   const dr = $(`[data-drawer="${i}"]`);
   if (dr) {
     const focusId = document.activeElement && document.activeElement.id;
@@ -3231,11 +3274,11 @@ function refreshRow(i) {
 // the numbers that change with any answer: priorities, benchmark gaps, dimension totals, the summary strip
 function updateNumbers() {
   const ws = A.ws, c = wsCalc(), doc = ws.doc;
-  const top = topPriorities();
+  const top = topPriorities(), max = priorityMax();
   $$("#sc .f-row[data-i]").forEach((row) => {
     const i = Number(row.dataset.i), x = c.rows[i];
     const p = $("[data-pri]", row);
-    if (p) { p.textContent = isNum(x.priority) ? f1(x.priority) : "–"; p.classList.toggle("hi", top.has(i)); }
+    if (p) { $(".pv", p).textContent = isNum(x.priority) ? f1(x.priority) : "–"; p.classList.toggle("hi", top.has(i)); p.style.setProperty("--p", String(barShare(x.priority, max))); }
     const b = $("[data-bench]", row);
     if (b) b.innerHTML = benchCell(i);
     const sub = $("[data-sub]", row);
@@ -3320,7 +3363,8 @@ function renderProfile() {
       <div class="field full"><label for="pf-Profile_Comments">Comments</label><textarea id="pf-Profile_Comments" data-p="Profile_Comments">${esc(p.Profile_Comments ?? "")}</textarea></div>
     </form>
     <div class="card" style="margin-top:1.5rem"><h2>Weighting method</h2>
-      <fieldset class="field"><legend class="visually-hidden">Weighting method</legend>
+      ${ws.doc.weightsLocked !== false ? `<p class="small muted">Locked with the weightings. Untick <strong>Weightings locked</strong> on the Scorecard tab to change it.</p>` : ""}
+      <fieldset class="field" ${ws.doc.weightsLocked !== false ? "disabled" : ""}><legend class="visually-hidden">Weighting method</legend>
         <label class="check"><input type="radio" name="wm" value="simple" ${ws.doc.weighting !== "tree" ? "checked" : ""}> <span><strong>Simple</strong>: each factor's weighting is shared out within its dimension, and the overall score weights every factor against all the others. This is how the Excel tool works unless its tree weightings have been calculated.</span></label>
         <label class="check"><input type="radio" name="wm" value="tree" ${ws.doc.weighting === "tree" ? "checked" : ""}> <span><strong>Tree</strong>: weightings cascade down the hierarchy. Each row's share of its siblings is multiplied by its heading's share, so headings need weightings too. The file carries the results in Tree_Weighting.</span></label>
       </fieldset></div>
@@ -3343,6 +3387,7 @@ function renderProfile() {
     if (k === "Profile_Name") { $("#ws-title").textContent = e.target.value || "Untitled assessment"; e.target.toggleAttribute("aria-invalid", /[\\/:*?"<>|]/.test(e.target.value)); }
   });
   $$("input[name=wm]").forEach((r) => r.addEventListener("change", () => {
+    if (ws.doc.weightsLocked !== false) return;
     ws.doc.weighting = r.value;
     if (r.value === "tree") ws.doc.rows.forEach((x) => { if (!isNum(x.treeWeight)) x.treeWeight = 0; });
     else ws.doc.rows.forEach((x) => (x.treeWeight = null));
@@ -3400,7 +3445,7 @@ async function renderReport() {
         <div class="chart">${Charts.matrix({ points: rows.filter((o) => o.x.answered && isNum(o.x.opp)).map((o) => ({ x: o.x.score, y: o.x.opp, conf: o.x.conf, r: o.r.weight / 100, name: `${o.r.id ?? ""} ${VA.clean(o.r.factor)}`, sub: o.r.dimension, priority: o.x.priority })) })}</div></section>
       <section class="card"><h2>Top priorities</h2><p class="small muted">Ranked by weighted priority: the weighting, how far performance and confidence fall short, and the opportunity.</p>
         ${prio.length ? `<div class="table-wrap"><table class="mini prio-table"><thead><tr><th></th><th>Factor</th><th class="num">Perf.</th><th class="num">Conf.</th><th class="num">Opp.</th><th class="num">Priority</th></tr></thead><tbody>
-        ${prio.map((o, k) => `<tr><td><span class="rank">${k + 1}</span></td><td class="nm">${esc(VA.clean(o.r.factor))}<span class="why">${esc(o.r.dimension)}${o.r.comment ? ` · ${esc(o.r.comment.slice(0, 90))}${o.r.comment.length > 90 ? "…" : ""}` : ""}</span></td><td class="num">${f0(o.x.score)}</td><td class="num">${f0(o.x.conf)}</td><td class="num">${f0(o.x.opp)}</td><td class="num"><strong>${f1(o.x.priority)}</strong></td></tr>`).join("")}
+        ${prio.map((o, k) => `<tr><td><span class="rank">${k + 1}</span></td><td class="nm">${esc(VA.clean(o.r.factor))}<span class="why">${esc(o.r.dimension)}${o.r.comment ? ` · ${esc(o.r.comment.slice(0, 90))}${o.r.comment.length > 90 ? "…" : ""}` : ""}</span></td><td class="num" style="${cellBg(tint(o.x.score))}">${f0(o.x.score)}</td><td class="num" style="${cellBg(tint(o.x.conf))}">${f0(o.x.conf)}</td><td class="num" style="${cellBg(shade(o.x.opp))}">${f0(o.x.opp)}</td><td class="num"><span class="pri-bar prio-v" style="--p:${barShare(o.x.priority, prio[0].x.priority)}"><strong class="pv">${f1(o.x.priority)}</strong><span class="pbar" aria-hidden="true"><i></i></span></span></td></tr>`).join("")}
         </tbody></table></div>` : `<p class="empty">Priorities appear once factors have a performance, confidence and opportunity answer.</p>`}</section>
     </div>
     <div class="grid-charts" style="margin-top:1.25rem">
@@ -3855,6 +3900,8 @@ function renderTe() {
         <div class="field" style="grid-column:1/-1"><label for="te-desc">Description</label><textarea id="te-desc" style="min-height:4.5rem" ${dis}>${esc(te.description)}</textarea></div>
         <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend>Where it can be used</legend><p class="hint">The levels of an organisation's structure this scorecard can be attached to.</p>
           <div class="row">${VA.LEVELS.map(([k, l]) => `<label class="check"><input type="checkbox" data-level="${k}" ${VA.levelsOf(doc.levels || te.meta?.levels).some(([x]) => x === k) ? "checked" : ""} ${dis}> ${l}</label>`).join("")}</div></fieldset>
+        <div class="field" style="grid-column:1/-1"><label class="check"><input type="checkbox" id="te-lock" ${doc.weightsLocked !== false ? "checked" : ""} ${dis}> <span>Lock the weightings in assessments made from it</span></label>
+          <p class="hint">Recommended, so assessments compare like for like in benchmarking. Members can still unlock them, after a warning that it may break benchmarking.</p></div>
       </form></div>
       <div id="te-dims">${dims.map((d, di) => `<section class="te-dim" data-d="${di}">
         <div class="te-dim-head"><span class="dot" style="background:${dimColour(di)}"></span><input type="text" data-dim="${di}" value="${esc(d)}" aria-label="Dimension name" ${dis}>
@@ -3884,6 +3931,7 @@ function renderTe() {
   $("#te-name").addEventListener("input", (e) => { te.name = e.target.value; $("#te-title").textContent = te.name || "New template"; teDirty(); });
   $("#te-type").addEventListener("change", (e) => { te.profileType = e.target.value; teDirty(); });
   $("#te-desc").addEventListener("input", (e) => { te.description = e.target.value; teDirty(); });
+  $("#te-lock")?.addEventListener("change", (e) => { te.doc.weightsLocked = e.target.checked; teDirty(); });
   $$("[data-level]").forEach((c) => c.addEventListener("change", () => { const on = $$("[data-level]").filter((x) => x.checked).map((x) => x.dataset.level); te.doc.levels = on.join(",") || "service"; teDirty(); }));
   $("#te-scope")?.addEventListener("change", (e) => { te.scope = e.target.value; teDirty(); });
   $("#te-wm").addEventListener("change", (e) => {
