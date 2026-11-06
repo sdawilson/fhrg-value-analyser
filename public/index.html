@@ -158,10 +158,20 @@ main:focus { outline: none; }
 @media (max-width: 820px) { .grid-2 { grid-template-columns: 1fr; } }
 
 /* sign in / register */
-.auth { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr); gap: 3rem; align-items: start; }
-.auth aside { background: var(--paper); border-radius: var(--radius); padding: 1.5rem; }
-.auth aside h2 { font-size: 1.2rem; }
-@media (max-width: 820px) { .auth { grid-template-columns: 1fr; } }
+/* sign in: the FHRG tools' framed card, as in Clarion */
+body.auth-page { background: var(--paper); }
+body.auth-page .site-head, body.auth-page .site-foot { display: none; }
+.auth-wrap { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
+.auth-sign { width: min(560px, 100%); background: var(--navy); border-radius: 18px; padding: clamp(10px, 2.5vw, 16px); box-shadow: inset 0 0 0 6px var(--navy), inset 0 0 0 10px #fff, 0 18px 40px rgba(26, 52, 82, 0.22); }
+.auth-card { display: grid; gap: 16px; background: var(--white); border-radius: 10px; padding: 26px 24px; margin: 6px; }
+.auth-card > * { margin: 0; }
+.auth-logo { width: 220px; max-width: 100%; height: auto; }
+.auth-title { font-size: 1.45rem; color: var(--navy-deep); }
+.auth-form { display: grid; gap: 8px; border-top: 2px solid var(--haze); padding-top: 14px; }
+.auth-form .auth-sub { font-size: 1.15rem; margin: 0; }
+.auth-form .form { margin-top: 0.4rem; }
+.auth-form .row .btn { white-space: normal; text-align: center; }
+@media (max-width: 520px) { .auth-sign { border-radius: 14px; } .auth-card { padding: 20px 16px; } .auth-form .row .btn { flex: 1 1 100%; } }
 .tabs { display: flex; gap: 0.25rem; border-bottom: 2px solid var(--haze); margin-bottom: 1.5rem; flex-wrap: wrap; }
 .tabs button { font: 600 1rem var(--font); background: none; border: 0; padding: 0.7rem 1rem; cursor: pointer; color: var(--ink-soft); border-bottom: 3px solid transparent; margin-bottom: -2px; }
 .tabs button[aria-selected="true"] { color: var(--navy); border-bottom-color: var(--navy); }
@@ -1703,7 +1713,7 @@ const Demo = (() => {
     init();
     await new Promise((r) => setTimeout(r, 120));
     switch (path) {
-      case "/api/boot": return { me: S.me ? { ...S.me } : null, fhrgSite: "https://fhrg.co.uk", features: { versions: true }, limits: { maxUpload: 5 * 1024 * 1024, minPeers: 3 }, demo: true };
+      case "/api/boot": return { me: S.me ? { ...S.me } : null, fhrgSite: "https://fhrg.co.uk", features: { versions: true, demo: true }, limits: { maxUpload: 5 * 1024 * 1024, minPeers: 3 }, demo: true };
       case "/api/login": setRole(S.role || "admin"); return { ok: true };
       case "/api/logout": S.me = null; return { ok: true };
     }
@@ -2510,6 +2520,7 @@ async function route() {
   const { path, query } = location2();
   currentPath = path;
   closeMenus();
+  document.body.classList.remove("auth-page");
   $$(".nav a").forEach((a) => {
     const p = a.getAttribute("data-path");
     a.toggleAttribute("aria-current", p === "/" ? path === "/" || path === "/assessments" || path.startsWith("/a/") || path === "/new" || path === "/open" : path.startsWith(p));
@@ -2583,23 +2594,30 @@ async function assessments(force = false) {
 }
 
 // ------------------------------------------------------------- sign in
+// the FHRG tools' sign-in card, as in Clarion, with the way into the Northbridge demonstration beside Sign in
 function pageSignin(q) {
   setTitle("Sign in");
   const next = (q && q.get("next")) || "/";
   if (A.me) return go(next.startsWith("/") ? next : "/", true);
-  main().innerHTML = page("Sign in to the Value Analyser", `<div class="auth"><div>
-    <div id="msg"></div>
-    <form class="form" id="signin" novalidate>
-      <div class="field"><label for="si-email">Work email</label><input id="si-email" name="email" type="email" autocomplete="email" required></div>
-      <div class="field"><label for="si-pw">Password</label><input id="si-pw" name="password" type="password" autocomplete="current-password" required></div>
-      <label class="check"><input type="checkbox" name="remember" id="si-remember"> Keep me signed in on this device for 30 days</label>
-      <div class="row"><button class="btn" type="submit">Sign in</button><a href="${esc(fhrg("/forgot"))}">Forgotten your password?</a></div>
-      ${LIVE ? "" : `<p class="small muted">In this preview, any email and password will do.</p>`}
-    </form></div>
-    <aside><h2>For FHRG members</h2><p>The Value Analyser is for staff of the Future Highways Research Group's member authorities. Sign in with your FHRG website account.</p>
-      <p>Not a member yet? Your authority's lead can approve you once you've asked to join on the FHRG website.</p>
-      <p><a class="btn secondary" href="${esc(fhrg("/register"))}">Join on the FHRG website</a></p>${A.boot?.features?.demo ? `<p><a href="/demo">See the demonstration</a></p>` : ""}</aside></div>`,
-    "Assess value for money, best practice and strategic options against a weighted, normalised scorecard, and compare your results with other authorities.");
+  const demo = !!(A.boot && A.boot.features && A.boot.features.demo);
+  const logo = $(".site-head .brand img");
+  document.body.classList.add("auth-page");
+  main().innerHTML = `<div class="auth-wrap"><div class="auth-sign"><div class="auth-card">
+    ${logo ? `<img class="auth-logo" src="${esc(logo.getAttribute("src"))}" alt="Future Highways Research Group">` : ""}
+    <h1 class="auth-title">Value Analyser</h1>
+    <p class="small muted">Assess value for money, best practice and strategic options against a weighted scorecard, and compare your results with other authorities. For FHRG member authorities.</p>
+    <div class="auth-form"><h2 class="auth-sub">Sign in</h2><p class="small muted" style="margin:0">Use the same email and password as the FHRG website.</p>
+      <div id="msg"></div>
+      <form class="form" id="signin" novalidate>
+        <div class="field"><label for="si-email">Email</label><input id="si-email" name="email" type="email" autocomplete="email" required></div>
+        <div class="field"><label for="si-pw">Password</label><input id="si-pw" name="password" type="password" autocomplete="current-password" required></div>
+        <label class="check"><input type="checkbox" name="remember" id="si-remember"> Keep me signed in on this device for 30 days</label>
+        <div class="row"><button class="btn" type="submit">Sign in</button>${demo ? `<a class="btn secondary" href="/demo" id="si-demo">Explore the Northbridge demonstration</a>` : ""}</div>
+        ${LIVE ? "" : `<p class="small muted">In this preview, any email and password will do.</p>`}
+      </form></div>
+    <p class="small muted"><a href="${esc(fhrg("/forgot"))}">Forgotten your password?</a> · <a href="${esc(fhrg("/register"))}">Join the FHRG</a></p>
+    ${demo ? `<p class="small muted">Not a member? Northbridge is a fictional authority with made-up data. Nothing you do there is saved.</p>` : ""}
+  </div></div></div>`;
   $("#signin").addEventListener("submit", async (e) => {
     e.preventDefault();
     const f = e.target, btn = $("button[type=submit]", f);
