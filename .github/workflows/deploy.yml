@@ -1,0 +1,72 @@
+# Checks every pull request; when main changes, builds Value Analyser's container image, puts it in
+# GitHub's container registry (ghcr.io/<owner>/<repo>), then tells Magic Containers to run it.
+#
+# For the last step, add in GitHub (Settings > Secrets and variables > Actions):
+#   variable  APP_ID            the Magic Containers app's ID
+#   variable  CONTAINER_NAME    the container's name in that app (shown on the app's page)
+#   secret    BUNNYNET_API_KEY  your bunny.net account API key (not a sub-user's)
+# Until APP_ID is set, the image is built and published but not deployed.
+
+name: Build and deploy
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check the code
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test
+          node scripts/build.mjs
+
+      - uses: docker/setup-buildx-action@v3
+        if: ${{ github.event_name != 'pull_request' }}
+
+      - uses: docker/login-action@v3
+        if: ${{ github.event_name != 'pull_request' }}
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image name
+        id: name
+        run: echo "image=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/build-push-action@v6
+        if: ${{ github.event_name != 'pull_request' }}
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.name.outputs.image }}:latest
+            ${{ steps.name.outputs.image }}:${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Update the app on Magic Containers
+        if: ${{ github.event_name != 'pull_request' && vars.APP_ID != '' }}
+        uses: BunnyWay/actions/container-update-image@main
+        with:
+          app_id: ${{ vars.APP_ID }}
+          api_key: ${{ secrets.BUNNYNET_API_KEY }}
+          container: ${{ vars.CONTAINER_NAME }}
+          image_tag: ${{ github.sha }}
