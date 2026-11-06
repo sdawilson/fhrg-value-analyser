@@ -235,6 +235,9 @@ await test("row totals sit at the end of the row, after Notes", () => {
   assert.match(css, /\.f-head \.c-t, \.f-row \.c-t \{ display: none; order: 1; \}/);
   for (const sel of ["\\.sc\\.show-totals \\.f-head, \\.sc\\.show-totals \\.f-row", "\\.sc\\.show-bench\\.show-totals \\.f-head, \\.sc\\.show-bench\\.show-totals \\.f-row"])
     assert.match(css, new RegExp(`${sel} \\{ grid-template-columns: [^}]* 4rem 5\\.2rem 4\\.6rem 4\\.6rem; \\}`), "priority, notes, then the two totals");
+  // only where there's room for them: narrower, each row stacks as on a phone
+  assert.match(css, /@media \(min-width: 1280px\) \{ \.sc\.show-totals \.f-head, \.sc\.show-totals \.f-row \{ grid-template-columns/);
+  assert.match(css, /@media \(max-width: 1279px\) \{ \.sc\.show-totals \.f-head \{ display: none; \} \.sc\.show-totals \.f-row \{ grid-template-columns: 3rem minmax\(0, 1fr\) auto; grid-template-areas/);
 });
 await test("scores sit in the middle of their cells", () => {
   const css = html.replace(/\s+/g, " ");

@@ -462,9 +462,21 @@ body:has(.sum-strip) .toasts { bottom: 5.5rem; }
 .f-head .c-b, .f-row .c-b { display: none; }
 .sc.show-bench .f-head .c-b, .sc.show-bench .f-row .c-b { display: block; }
 /* row totals, as in the Excel tool: each factor's weighted share of its dimension's score and of the overall score */
-/* they sit at the end of the row, after Notes */
-.sc.show-totals .f-head, .sc.show-totals .f-row { grid-template-columns: 3.2rem minmax(11rem, 1fr) 5.4rem minmax(9rem, 12.5rem) minmax(7.5rem, 10rem) minmax(7.5rem, 10rem) 4rem 5.2rem 4.6rem 4.6rem; }
-.sc.show-bench.show-totals .f-head, .sc.show-bench.show-totals .f-row { grid-template-columns: 3.2rem minmax(11rem, 1fr) 5.4rem minmax(9rem, 12.5rem) 4.2rem minmax(7.5rem, 10rem) minmax(7.5rem, 10rem) 4rem 5.2rem 4.6rem 4.6rem; }
+/* they sit at the end of the row, after Notes, where there's room; narrower, each row stacks as on a phone */
+@media (min-width: 1280px) {
+  .sc.show-totals .f-head, .sc.show-totals .f-row { grid-template-columns: 3.2rem minmax(11rem, 1fr) 5.4rem minmax(9rem, 12.5rem) minmax(7.5rem, 10rem) minmax(7.5rem, 10rem) 4rem 5.2rem 4.6rem 4.6rem; }
+  .sc.show-bench.show-totals .f-head, .sc.show-bench.show-totals .f-row { grid-template-columns: 3.2rem minmax(11rem, 1fr) 5.4rem minmax(9rem, 12.5rem) 4.2rem minmax(7.5rem, 10rem) minmax(7.5rem, 10rem) 4rem 5.2rem 4.6rem 4.6rem; }
+}
+@media (max-width: 1279px) {
+  .sc.show-totals .f-head { display: none; }
+  .sc.show-totals .f-row { grid-template-columns: 3rem minmax(0, 1fr) auto; grid-template-areas: "id name more" "ctl ctl ctl"; padding: 0.7rem 0.8rem; }
+  .sc.show-totals .f-row .c-id { grid-area: id; } .sc.show-totals .f-row .c-name { grid-area: name; } .sc.show-totals .f-row .more { grid-area: more; }
+  .sc.show-totals .f-row .ctl { grid-area: ctl; display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.5rem; }
+  .sc.show-totals .f-row .pri { align-items: stretch; text-align: left; }
+  .sc.show-totals .f-row .c-t { text-align: left; } .sc.show-totals .f-row select { text-align: left; text-align-last: auto; }
+  .sc.show-totals .f-row.f-total .ctl > .sp, .sc.show-totals .f-row.heading .ctl:empty { display: none; }
+  .sc.show-totals .lbl-mobile { display: block; }
+}
 .f-head .c-t, .f-row .c-t { display: none; order: 1; }
 .sc.show-totals .f-head .c-t, .sc.show-totals .f-row .c-t { display: block; }
 .f-row .c-t { font-variant-numeric: tabular-nums; font-size: 0.9rem; }
@@ -474,7 +486,7 @@ body:has(.sum-strip) .toasts { bottom: 5.5rem; }
 /* scores sit in the middle of their cells */
 .f-head .mid, .f-row .c-t, .f-row .c-b { text-align: center; }
 .f-row { border-bottom: 1px solid var(--haze); }
-.f-row:last-child { border-bottom: 0; }
+.f-row:last-child, .sc:not(.show-totals) .dim-body > :nth-last-child(2) { border-bottom: 0; }
 .f-row:hover { background: #fafbfc; }
 .f-row.open { background: #f3f7fb; }
 .f-row .c-id { color: var(--ink-soft); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
@@ -3258,7 +3270,9 @@ function rowTotals(i) {
   const d = c.dims.find((y) => y.name === r.dimension);
   return { dim: d && d.weightShare ? x.scoreAss / d.weightShare : 0, all: x.scoreAss };
 }
-const rowTotalsOn = () => { try { return localStorage.getItem("va.rowTotals") === "1"; } catch { return false; } };
+// remembered in this browser where it can be, and for this visit where it can't
+let rowTotalsChoice = null;
+const rowTotalsOn = () => { if (rowTotalsChoice !== null) return rowTotalsChoice; try { return localStorage.getItem("va.rowTotals") === "1"; } catch { return false; } };
 function topPriorities(n = 10) {
   const c = A.ws.calc;
   return new Set(c.rows.map((x, i) => [i, x.priority]).filter(([, p]) => isNum(p) && p > 0).sort((a, b) => b[1] - a[1]).slice(0, n).map(([i]) => i));
@@ -3340,7 +3354,8 @@ function renderScorecard() {
     toast("Weightings unlocked.", 4000);
   });
   $("#sc-totals").addEventListener("change", (e) => {
-    try { localStorage.setItem("va.rowTotals", e.target.checked ? "1" : "0"); } catch { /* this browser keeps nothing: on for now */ }
+    rowTotalsChoice = e.target.checked;
+    try { localStorage.setItem("va.rowTotals", e.target.checked ? "1" : "0"); } catch { /* this browser keeps nothing: kept for this visit */ }
     $("#sc").classList.toggle("show-totals", e.target.checked);
   });
   $("#sc-collapse").addEventListener("click", () => {
