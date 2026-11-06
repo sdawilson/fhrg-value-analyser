@@ -181,7 +181,7 @@ main:focus { outline: none; }
 .hub { position: relative; width: 168px; height: 168px; border-radius: 50%; display: grid; place-content: center; justify-items: center; gap: 2px; padding: 14px; border: 0; text-align: center; background: var(--navy-deep); color: #fff; cursor: pointer; font: inherit; }
 .hub:disabled { cursor: default; } .hub:not(:disabled):hover { box-shadow: 0 0 0 4px var(--n50); }
 .hub-title { font-weight: 800; font-size: 1rem; line-height: 1.15; } .hub-line { font-size: 0.8rem; line-height: 1.2; opacity: 0.9; }
-.nd { --d: 62px; --lw: clamp(70px, calc(17cqw - 40px), 130px); --lv: clamp(84px, 12cqw, 124px); position: absolute; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--ink); cursor: pointer; font: inherit; }
+.nd { --d: 62px; --lw: clamp(70px, calc(17cqw - 40px), 130px); position: absolute; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--ink); cursor: pointer; font: inherit; }
 .nd.right { width: calc(var(--d) + 8px + var(--lw)); transform: translate(calc(var(--d) / -2), -50%); text-align: left; }
 .nd.left { width: calc(var(--d) + 8px + var(--lw)); flex-direction: row-reverse; transform: translate(calc(var(--d) / 2 - 100%), -50%); text-align: right; }
 .nd.above { width: var(--lv); flex-direction: column-reverse; gap: 4px; transform: translate(-50%, calc(var(--d) / 2 - 100%)); text-align: center; }
@@ -203,13 +203,20 @@ main:focus { outline: none; }
   .hub-wrap { width: 168px; height: 168px; } .hub { width: 142px; height: 142px; padding: 10px; } .hub-title { font-size: 0.92rem; }
   .nd { --d: 54px; } .nd-label { font-size: 0.8rem; } .bub { font-size: 0.9rem; }
 }
+/* a list in place of the ring: on a narrow stage, or with more circles than a ring can hold */
 @container stage (max-width: 600px) {
-  .stage, .stage.tall { aspect-ratio: auto; display: grid; gap: 8px; } .wires, .stage-empty { display: none; } .nd { --d: 46px; }
+  .stage, .stage.tall { aspect-ratio: auto; display: grid; gap: 8px; } .wires { display: none; } .stage-empty { position: static; transform: none; } .nd { --d: 46px; }
   .hub-wrap { position: static; transform: none; width: auto; height: auto; display: block; } .hub-ring { display: none; }
   .hub { width: 100%; height: auto; border-radius: var(--radius); padding: 12px; }
   .nd, .nd.left, .nd.right, .nd.above, .nd.below { position: static; transform: none; width: auto; flex-direction: row; gap: 12px; text-align: left; }
   .nd .nd-text, .nd.left .nd-text, .nd.above .nd-text, .nd.below .nd-text { justify-items: start; }
 }
+.stage.list { aspect-ratio: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 8px 16px; }
+.stage.list .wires { display: none; } .stage.list .nd { --d: 46px; }
+.stage.list .hub-wrap { grid-column: 1 / -1; position: static; transform: none; width: auto; height: auto; display: block; } .stage.list .hub-ring { display: none; }
+.stage.list .hub { width: 100%; height: auto; border-radius: var(--radius); padding: 12px; }
+.stage.list .nd { position: static; transform: none; width: auto; flex-direction: row; gap: 12px; text-align: left; }
+.stage.list .nd .nd-text { justify-items: start; }
 /* sign in: the FHRG tools' framed card, as in Clarion */
 body.auth-page { background: var(--paper); }
 body.auth-page .site-head, body.auth-page .site-foot { display: none; }
@@ -1863,24 +1870,25 @@ const Demo = (() => {
     ["hw.rights-of-way", "Public rights of way"], ["hw.verges", "Verges, trees and grass cutting"], ["hw.design", "Highway design and capital schemes"], ["hw.development", "Development management"]];
   function orgAdd(aid, parent_id, level, name, over = {}) {
     const it = { id: S.nextId++, authority_id: aid, parent_id, level, name, std_key: null, service: level === "service" ? name : undefined, weight: 100,
-      sort: S.orgItems.filter((x) => x.parent_id === parent_id && parent_id !== null).length, created_by: S.me ? S.me.email : ME_BASE.email, updated: nowIso(0), updated_by: S.me ? S.me.email : ME_BASE.email, ...over };
+      sort: S.orgItems.filter((x) => x.parent_id === parent_id && parent_id !== null).reduce((m, x) => Math.max(m, x.sort + 1), 0), created_by: S.me ? S.me.email : ME_BASE.email, updated: nowIso(0), updated_by: S.me ? S.me.email : ME_BASE.email, ...over };
     S.orgItems.push(it);
     return it;
   }
   function orgSeed(aid) {
-    if (S.orgItems.some((x) => x.authority_id === aid)) return;
-    const root = orgAdd(aid, null, "organisation", authorityName(aid) || "Our organisation", { std_key: "org" });
-    const hw = orgAdd(aid, root.id, "service", VA.DEFAULT_SERVICE, { std_key: "svc.highways" });
-    STD_FUNCTIONS.forEach(([key, name]) => orgAdd(aid, hw.id, "function", name, { std_key: key }));
+    if (S.orgItems.some((x) => x.authority_id === aid && x.std_key === "org")) return;
+    const by = { created_by: "toolkit", updated_by: "toolkit" };
+    const root = orgAdd(aid, null, "organisation", authorityName(aid) || "Our organisation", { std_key: "org", ...by });
+    const hw = orgAdd(aid, root.id, "service", VA.DEFAULT_SERVICE, { std_key: "svc.highways", ...by });
+    STD_FUNCTIONS.forEach(([key, name]) => orgAdd(aid, hw.id, "function", name, { std_key: key, ...by }));
     if (aid !== 1) return;
     // Northbridge, as the demonstration shows it: a second service, some weights, processes and facts
     const w = { "hw.carriageways": 100, "hw.winter": 100, "hw.inspections": 100, "hw.footways": 75, "hw.drainage": 75, "hw.structures": 75, "hw.asset-management": 75, "hw.network-management": 75,
       "hw.street-lighting": 50, "hw.traffic-signals": 50, "hw.road-safety": 50, "hw.design": 50, "hw.rights-of-way": 25, "hw.verges": 25, "hw.development": 25 };
     S.orgItems.forEach((x) => { if (x.authority_id === aid && w[x.std_key] !== undefined) x.weight = w[x.std_key]; });
-    const tr = orgAdd(aid, root.id, "service", "Transport", { weight: 50 });
-    orgAdd(aid, tr.id, "function", "Passenger transport"); orgAdd(aid, tr.id, "function", "Transport planning", { weight: 75 });
+    const tr = orgAdd(aid, root.id, "service", "Transport", { weight: 50, ...by });
+    orgAdd(aid, tr.id, "function", "Passenger transport", by); orgAdd(aid, tr.id, "function", "Transport planning", { weight: 75, ...by });
     const winter = S.orgItems.find((x) => x.authority_id === aid && x.std_key === "hw.winter");
-    orgAdd(aid, winter.id, "process", "Precautionary gritting"); orgAdd(aid, winter.id, "process", "Snow clearance", { weight: 50 }); orgAdd(aid, winter.id, "process", "Salt and grit bins", { weight: 25 });
+    orgAdd(aid, winter.id, "process", "Precautionary gritting", by); orgAdd(aid, winter.id, "process", "Snow clearance", { weight: 50, ...by }); orgAdd(aid, winter.id, "process", "Salt and grit bins", { weight: 25, ...by });
     const facts = (it, list) => { S.orgValues[it.id] = Object.fromEntries(list.map(([k, v]) => [S.props.find((p) => p.key === k).id, String(v)])); };
     facts(hw, [["fhrg.revenue-budget", 24500000], ["fhrg.capital-budget", 31000000], ["fhrg.staff", 186], ["fhrg.network-length", 2140], ["fhrg.structures", 412], ["fhrg.street-lights", 38600], ["fhrg.delivery-model", "Mixed"]]);
     facts(tr, [["fhrg.revenue-budget", 6200000], ["fhrg.staff", 41], ["fhrg.delivery-model", "Outsourced"]]);
@@ -1891,6 +1899,14 @@ const Demo = (() => {
     properties: S.props.filter((p) => p.scope_id === 0 || p.scope_id === aid).map((p) => ({ id: p.id, fhrg: p.scope_id === 0, key: p.key, name: p.name, kind: p.kind, unit: p.unit, choices: [...p.choices] })),
     values: Object.fromEntries(Object.entries(S.orgValues).filter(([id]) => S.orgItems.some((x) => x.id === Number(id) && x.authority_id === aid)).map(([id, v]) => [id, { ...v }])) });
   const orgItem = (aid, id) => { const it = S.orgItems.find((x) => x.id === Number(id)); if (!it || it.authority_id !== aid) fail("That isn't on your map. It may have been removed.", 404); return it; };
+  // as the server's checkServiceName: refused, not changed, when the Excel tool's files couldn't hold it
+  const serviceName = (v) => {
+    const name = String(v ?? "").replace(/\s+/g, " ").trim();
+    if (name.length < 2 || name.length > 60) fail("Give the service a name of 2 to 60 characters.", 400, { field: "name" });
+    if (/[\\/:*?"<>|\u0000-\u001f\u007f]/.test(name)) fail('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, { field: "name" });
+    if (/[^\u0020-\u007e\u00a0-\u00ff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/u.test(name)) fail("A service's name can only use letters, numbers and punctuation that the Excel tool's files can hold, so no emoji or symbols from other alphabets.", 400, { field: "name" });
+    return name;
+  };
   const itemName = (v) => { const s = String(v ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim(); if (s.length < 2 || s.length > 80) fail("Give it a name of 2 to 80 characters.", 400, { field: "name" }); return s; };
 
   function docFromStarter(st) {
@@ -2065,9 +2081,9 @@ const Demo = (() => {
         if (b.action === "add") {
           const parent = orgItem(aid, b.parentId), level = below[parent.level];
           if (!level) fail("Processes are the last level of the map, so nothing goes below one.");
-          let name = itemName(b.name);
+          if (S.orgItems.filter((x) => x.authority_id === aid).length >= 600) fail("A map can hold up to 600 items.");
+          let name = level === "service" ? serviceName(b.name) : itemName(b.name);
           if (level === "service") {
-            if (/[\\/:*?"<>|]/.test(name)) fail('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, { field: "name" });
             const found = S.services.find((s) => s.name.toLowerCase() === name.toLowerCase() && (s.scope_id === 0 || s.scope_id === aid));
             if (found) name = found.name; else S.services.push({ id: S.nextId++, scope_id: aid, name });
           }
@@ -2075,9 +2091,8 @@ const Demo = (() => {
         }
         const it = orgItem(aid, b.id);
         if (b.action === "rename") {
-          let name = itemName(b.name);
+          let name = it.level === "service" ? serviceName(b.name) : itemName(b.name);
           if (it.level === "service") {
-            if (/[\\/:*?"<>|]/.test(name)) fail('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, { field: "name" });
             const found = S.services.find((s) => s.name.toLowerCase() === name.toLowerCase() && (s.scope_id === 0 || s.scope_id === aid));
             if (found) name = found.name; else S.services.push({ id: S.nextId++, scope_id: aid, name });
             it.service = name;
@@ -2085,7 +2100,7 @@ const Demo = (() => {
           it.name = name;
           return { ok: true };
         }
-        if (b.action === "weight") { const w = Number(b.weight); if (!Number.isFinite(w) || w < 0 || w > 100) fail("A weighting is a number from 0 to 100.", 400, { field: "weight" }); it.weight = w; return { ok: true }; }
+        if (b.action === "weight") { const w = Number(b.weight); if (!Number.isFinite(w) || w < 0 || w > 100) fail("A weighting is a number from 0 to 100.", 400, { field: "weight" }); it.weight = Math.round(w * 100) / 100; return { ok: true }; }
         if (b.action === "move") {
           if (!it.parent_id) fail("The organisation stays in the middle.");
           const sibs = S.orgItems.filter((x) => x.parent_id === it.parent_id).sort((x, y) => x.sort - y.sort || x.id - y.id), i = sibs.indexOf(it), j = i + (Number(b.dir) < 0 ? -1 : 1);
@@ -2097,7 +2112,7 @@ const Demo = (() => {
           if (!S.me.siteAdmin && S.me.role !== "lead" && it.created_by !== S.me.email) fail("Only your authority's lead, or whoever added it, can remove this.", 403);
           const gone = new Set([it.id]);
           for (let grew = true; grew; ) { grew = false; for (const x of S.orgItems) if (!gone.has(x.id) && gone.has(x.parent_id)) { gone.add(x.id); grew = true; } }
-          if (gone.size > 1 && !b.withEverything) fail(`${it.name} has ${gone.size - 1} item${gone.size === 2 ? "" : "s"} below it.`, 409, { below: gone.size - 1 });
+          if (gone.size > 1 && b.withEverything !== true) fail(`${it.name} has ${gone.size - 1} item${gone.size === 2 ? "" : "s"} below it.`, 409, { below: gone.size - 1 });
           if (!S.me.siteAdmin && S.me.role !== "lead" && S.orgItems.some((x) => gone.has(x.id) && x.created_by !== S.me.email)) fail("Someone else added items below this, so only your authority's lead can remove it.", 403);
           S.orgItems = S.orgItems.filter((x) => !gone.has(x.id)); gone.forEach((id) => delete S.orgValues[id]);
           return { ok: true, removed: gone.size };
@@ -2108,19 +2123,21 @@ const Demo = (() => {
         const aid = S.me.siteAdmin && Number(b.authorityId) ? Number(b.authorityId) : S.me.authorityId, it = orgItem(aid, b.itemId);
         const p = S.props.find((x) => x.id === Number(b.propertyId) && (x.scope_id === 0 || x.scope_id === aid));
         if (!p) fail("That fact isn't available.", 404);
-        let v = String(b.value ?? "").replace(/\s+/g, " ").trim();
-        if (v && (p.kind === "money" || p.kind === "number")) { const n = Number(v.replace(/[£,\s]/g, "")); if (!Number.isFinite(n) || n < 0) fail(p.kind === "money" ? "Give an amount in pounds, such as 2,500,000." : "Give a number, such as 120.", 400, { field: "value" }); v = String(Math.round(n * 100) / 100); }
+        let v = String(b.value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+        if (v && p.kind === "text" && v.length > 200) fail("Keep it to 200 characters.", 400, { field: "value" });
+        if (v && (p.kind === "money" || p.kind === "number")) { const bare = v.replace(/[£,\s]/g, ""), n = Number(bare); if (!/^\d+(\.\d+)?$/.test(bare) || n > 1e13) fail(p.kind === "money" ? "Give an amount in pounds, such as 2,500,000." : "Give a number, such as 120.", 400, { field: "value" }); v = String(Math.round(n * 100) / 100); }
         else if (v && p.kind === "choice") { const hit = p.choices.find((x) => x.toLowerCase() === v.toLowerCase()); if (!hit) fail(`Choose one of: ${p.choices.join(", ")}.`, 400, { field: "value" }); v = hit; }
         if (v) (S.orgValues[it.id] ||= {})[p.id] = v; else if (S.orgValues[it.id]) delete S.orgValues[it.id][p.id];
         return { ok: true, value: v };
       }
       case "/api/org/fact-add": {
         const aid = S.me.siteAdmin && Number(b.authorityId) ? Number(b.authorityId) : S.me.authorityId;
-        const name = String(b.name || "").replace(/\s+/g, " ").trim();
+        const name = String(b.name || "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
         if (name.length < 2 || name.length > 60) fail("Give the fact a name of 2 to 60 characters.", 400, { field: "name" });
+        if (S.props.filter((p) => p.scope_id === aid).length >= 40) fail("An authority can add up to 40 facts of its own.");
         if (S.props.some((p) => (p.scope_id === 0 || p.scope_id === aid) && p.name.toLowerCase() === name.toLowerCase())) fail("There's already a fact with that name.", 409, { field: "name" });
         const kind = ["money", "number", "text", "choice"].includes(b.kind) ? b.kind : "text";
-        const choices = kind === "choice" ? [...new Set(String(b.choices || "").split(",").map((x) => x.trim()).filter(Boolean))] : [];
+        const choices = kind === "choice" ? [...new Set(String(b.choices || "").split(",").map((x) => x.replace(/\s+/g, " ").trim()).filter((x) => x && x.length <= 40))].slice(0, 12) : [];
         if (kind === "choice" && choices.length < 2) fail("Give at least two choices, separated by commas.", 400, { field: "choices" });
         const p = { id: S.nextId++, scope_id: aid, key: `own.${S.nextId}`, name, kind, unit: String(b.unit || "").trim().slice(0, 20), choices };
         S.props.push(p);
@@ -2133,10 +2150,7 @@ const Demo = (() => {
         return { services: list.map((s) => ({ id: s.id, name: s.name, fhrg: s.scope_id === 0, authority_name: all ? authorityName(s.scope_id) || null : undefined, templates: all ? S.templates.filter((t) => svcOf(t).toLowerCase() === s.name.toLowerCase()).length : undefined })) };
       }
       case "/api/services/add": {
-        const name = String(b.name || "").replace(/\s+/g, " ").trim();
-        if (name.length < 2 || name.length > 60) fail("Give the service a name of 2 to 60 characters.", 400, { field: "name" });
-        if (/[\\/:*?"<>|]/.test(name)) fail('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, { field: "name" });
-        if (/[^\u0020-\u007e\u00a0-\u00ff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/u.test(name)) fail("A service's name can only use letters, numbers and punctuation that the Excel tool's files can hold, so no emoji or symbols from other alphabets.", 400, { field: "name" });
+        const name = serviceName(b.name);
         if (b.scope === "fhrg" && !S.me.siteAdmin) fail("Only the FHRG team can add to the FHRG's services. Add it for your authority instead.", 403);
         const scope = b.scope === "fhrg" ? 0 : S.me.authorityId;
         const found = S.services.find((s) => s.name.toLowerCase() === name.toLowerCase() && (s.scope_id === 0 || s.scope_id === scope));
@@ -4376,13 +4390,19 @@ function placeAround(shares, rx, ry) {
   let i = 1;
   for (const r of runs) for (let t = 0; t < r.k; t++) angles[i++] = r.at + t * gap;
   angles[0] = 0;
-  // labels go beside their circles, except at the very top and bottom; with many circles, only the one nearest
+  // labels go beside their circles, except near the top and bottom, where they go above or below, kept narrower
+  // than the space between neighbours there (lv, in % of the width)
   const edge = n > 8 ? 0.96 : 0.8;
   const pts = angles.map((deg) => {
     const r = (deg * Math.PI) / 180, a = Math.atan2(-Math.cos(r) / (ry * 0.82), Math.sin(r) / rx), up = Math.sin(a), over = Math.cos(a);
     return { x: +(50 + rx * over).toFixed(2), y: +(50 + ry * up).toFixed(2), side: up < -edge ? "above" : up > edge ? "below" : over >= 0 ? "right" : "left" };
   });
-  return { pts, arcs };
+  let lv = 30;
+  for (const side of ["above", "below"]) {
+    const xs = pts.filter((p) => p.side === side).map((p) => p.x).sort((x, y) => x - y);
+    for (let i = 1; i < xs.length; i++) lv = Math.min(lv, (xs[i] - xs[i - 1]) * 0.96);
+  }
+  return { pts, arcs, lv: +lv.toFixed(2) };
 }
 function ringArc({ from, sweep }) {
   const r = 96, pad = sweep >= 359.9 ? 0 : Math.min(1, sweep / 4), run = Math.min(sweep, 359.9) - pad * 2;
@@ -4416,7 +4436,7 @@ function drawMap() {
   mapState.sel = sel.id;
   const weightOf = (x) => (x.weight > 0 ? x.weight : 0);
   const shareIn = (x) => { const sibs = x.parent_id ? kids(x.parent_id) : [x], tot = sibs.reduce((a, y) => a + weightOf(y), 0); return tot ? weightOf(x) / tot : 0; };
-  const { pts, arcs } = placeAround(children.map(weightOf), 33, 37);
+  const { pts, arcs, lv } = placeAround(children.map(weightOf), 33, 37);
   const below = BELOW[hub.level], subOf = (x) => { const n = kids(x.id).length, b = BELOW[x.level]; return b && n ? plural(n, b === "process" ? "process" : b, PLURAL[b]) : ""; };
   const nodes = children.map((x, i) => `<button type="button" class="nd ${pts[i].side} lv-${x.level} ${x.id === sel.id ? "sel" : ""}" style="left:${pts[i].x}%;top:${pts[i].y}%" data-node="${x.id}"
       aria-label="${esc(`${x.name}: ${pct(shareIn(x))} of ${hub.name}. ${BELOW[x.level] ? "Open" : "Select"}`)}">
@@ -4430,7 +4450,7 @@ function drawMap() {
     <ol class="map-crumbs" aria-label="Where you are">${trail.map((x, i) => `<li><button type="button" data-crumb="${i}" ${i === trail.length - 1 ? 'aria-current="page"' : ""}>${esc(x.name)}</button></li>`).join("")}</ol>
     <div class="map-split">
       <div class="map-main">
-        <div class="stage-box"><div class="stage ${children.length > 8 ? "tall" : ""}">${wires}<div class="hub-wrap">${ring}${hubEl}</div>${nodes}
+        <div class="stage-box"><div class="stage ${children.length > 20 ? "list" : children.length > 8 ? "tall" : ""}" style="--lv: clamp(60px, calc(${lv}cqw - 8px), 124px)" data-lv="${lv}">${wires}<div class="hub-wrap">${ring}${hubEl}</div>${nodes}
           ${children.length ? "" : `<p class="stage-empty muted">${below ? `No ${PLURAL[below]} here yet. Add one below.` : ""}</p>`}</div></div>
         ${below ? `<form class="row map-add" id="map-add" novalidate><label class="visually-hidden" for="map-add-name">A new ${below} for ${esc(hub.name)}</label>
           <input id="map-add-name" name="item" type="text" maxlength="${below === "service" ? 60 : 80}" placeholder="A new ${below} for ${esc(hub.name)}" ${below === "service" ? 'list="map-svcs"' : ""}>

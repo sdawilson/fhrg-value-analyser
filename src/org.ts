@@ -7,7 +7,7 @@ import { requireMe } from "./accounts";
 import type { Config } from "./config";
 import type { Row, Stmt } from "./db";
 import { audit, exec, q } from "./db";
-import { DEFAULT_SERVICE, cleanService, listedService } from "./services";
+import { DEFAULT_SERVICE, checkServiceName, cleanService, listedService } from "./services";
 import { FriendlyError, json, now, readJsonBody } from "./util";
 
 export const LEVEL_BELOW: Record<string, string> = { organisation: "service", service: "function", function: "process" };
@@ -42,15 +42,17 @@ const listService = (aid: number, name: string, who: string, t: string): Stmt =>
   args: [aid, name, name.toLowerCase(), t, who, name.toLowerCase(), aid],
 });
 
+// A new map, in one request to the database. The standard items are made by the toolkit, not by whoever happened
+// to open the map first, so only the lead or the FHRG team can remove them; and each is there at most once
+// (va_org_items_standard), so starting twice adds nothing.
 async function seed(c: Config, me: Me, aid: number): Promise<void> {
   const name = (await q(c, "SELECT name FROM authorities WHERE id = ?", aid))[0]?.name || me.authorityName || "Our organisation";
-  const t = now();
-  const root = await exec(c, [{ sql: "INSERT INTO va_org_items (authority_id, parent_id, level, name, std_key, weight, sort, created, created_by, updated, updated_by) VALUES (?, NULL, 'organisation', ?, 'org', 100, 0, ?, ?, ?, ?)", args: [aid, name, t, me.email, t, me.email] }]);
-  const rootId = root[0].lastId || 0;
-  const svc = await exec(c, [{ sql: "INSERT INTO va_org_items (authority_id, parent_id, level, name, std_key, service, weight, sort, created, created_by, updated, updated_by) VALUES (?, ?, 'service', ?, 'svc.highways', ?, 100, 0, ?, ?, ?, ?)", args: [aid, rootId, DEFAULT_SERVICE, DEFAULT_SERVICE, t, me.email, t, me.email] }]);
-  const svcId = svc[0].lastId || 0;
+  const t = now(), by = "toolkit";
+  const parent = (key: string) => `(SELECT id FROM va_org_items WHERE authority_id = ${Number(aid)} AND std_key = '${key}')`;
   await exec(c, [
-    ...STANDARD_FUNCTIONS.map(([key, fn], i): Stmt => ({ sql: "INSERT INTO va_org_items (authority_id, parent_id, level, name, std_key, weight, sort, created, created_by, updated, updated_by) VALUES (?, ?, 'function', ?, ?, 100, ?, ?, ?, ?, ?)", args: [aid, svcId, fn, key, i, t, me.email, t, me.email] })),
+    { sql: "INSERT OR IGNORE INTO va_org_items (authority_id, parent_id, level, name, std_key, weight, sort, created, created_by, updated, updated_by) VALUES (?, NULL, 'organisation', ?, 'org', 100, 0, ?, ?, ?, ?)", args: [aid, name, t, by, t, by] },
+    { sql: `INSERT OR IGNORE INTO va_org_items (authority_id, parent_id, level, name, std_key, service, weight, sort, created, created_by, updated, updated_by) SELECT ?, ${parent("org")}, 'service', ?, 'svc.highways', ?, 100, 0, ?, ?, ?, ?`, args: [aid, DEFAULT_SERVICE, DEFAULT_SERVICE, t, by, t, by] },
+    ...STANDARD_FUNCTIONS.map(([key, fn], i): Stmt => ({ sql: `INSERT OR IGNORE INTO va_org_items (authority_id, parent_id, level, name, std_key, weight, sort, created, created_by, updated, updated_by) SELECT ?, ${parent("svc.highways")}, 'function', ?, ?, 100, ?, ?, ?, ?, ?`, args: [aid, fn, key, i, t, by, t, by] })),
     audit(me.email, "va-org-start", { authority: aid }),
   ]);
 }
@@ -74,7 +76,7 @@ export async function handleOrgGet(c: Config, request: Request): Promise<Respons
   const me = await requireMe(c, request);
   const b = await readJsonBody(request);
   const aid = await authorityOf(c, me, b);
-  if ((await q(c, "SELECT COUNT(*) AS n FROM va_org_items WHERE authority_id = ?", aid))[0].n === 0) {
+  if (!(await q(c, "SELECT id FROM va_org_items WHERE authority_id = ? AND std_key = 'org'", aid))[0]) {
     // one start at a time for each authority (the container is a single instance)
     if (!seeding.has(aid)) seeding.set(aid, seed(c, me, aid).finally(() => seeding.delete(aid)));
     await seeding.get(aid);
@@ -101,10 +103,9 @@ export async function handleOrgItem(c: Config, request: Request): Promise<Respon
       const level = LEVEL_BELOW[parent.level];
       if (!level) throw new FriendlyError("Processes are the last level of the map, so nothing goes below one.");
       if ((await q(c, "SELECT COUNT(*) AS n FROM va_org_items WHERE authority_id = ?", aid))[0].n >= MAX_ITEMS) throw new FriendlyError(`A map can hold up to ${MAX_ITEMS} items.`);
-      let name = cleanItemName(b.name), service: string | null = null;
+      let name = level === "service" ? checkServiceName(b.name) : cleanItemName(b.name), service: string | null = null;
       if (level === "service") {
         // a service on the map is one of the services templates are for: added to the authority's list if it's new
-        if (/[\\/:*?"<>|]/.test(name)) throw new FriendlyError('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, "name");
         name = await listedService(c, name, aid);
         service = name;
         await exec(c, [listService(aid, name, me.email, t)]);
@@ -118,11 +119,8 @@ export async function handleOrgItem(c: Config, request: Request): Promise<Respon
     }
     case "rename": {
       const it = await itemFor(c, aid, b.id);
-      let name = cleanItemName(b.name);
-      if (it.level === "service") {
-        if (/[\\/:*?"<>|]/.test(name)) throw new FriendlyError('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, "name");
-        name = await listedService(c, name, aid);
-      }
+      let name = it.level === "service" ? checkServiceName(b.name) : cleanItemName(b.name);
+      if (it.level === "service") name = await listedService(c, name, aid);
       await exec(c, [
         ...(it.level === "service" ? [listService(aid, name, me.email, t)] : []),
         { sql: "UPDATE va_org_items SET name = ?, service = CASE WHEN level = 'service' THEN ? ELSE service END, updated = ?, updated_by = ? WHERE id = ?", args: [name, name, t, me.email, it.id] },
@@ -153,7 +151,7 @@ export async function handleOrgItem(c: Config, request: Request): Promise<Respon
       const all = await q(c, "SELECT id, parent_id, created_by FROM va_org_items WHERE authority_id = ?", aid);
       const gone = new Set<number>([it.id]);
       for (let grew = true; grew; ) { grew = false; for (const x of all) if (!gone.has(x.id) && gone.has(x.parent_id)) { gone.add(x.id); grew = true; } }
-      if (gone.size > 1 && !b.withEverything) throw new FriendlyError(`${it.name} has ${gone.size - 1} item${gone.size === 2 ? "" : "s"} below it.`, 409, undefined, { below: gone.size - 1 });
+      if (gone.size > 1 && b.withEverything !== true) throw new FriendlyError(`${it.name} has ${gone.size - 1} item${gone.size === 2 ? "" : "s"} below it.`, 409, undefined, { below: gone.size - 1 });
       // what others added below it goes only with the lead's or the FHRG team's say-so
       if (!me.siteAdmin && me.role !== "lead" && all.some((x) => gone.has(x.id) && x.created_by !== me.email)) throw new FriendlyError("Someone else added items below this, so only your authority's lead can remove it.", 403);
       const list = [...gone];
@@ -179,8 +177,8 @@ export async function handleOrgFact(c: Config, request: Request): Promise<Respon
   let v = String(b.value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
   if (v) {
     if (p.kind === "money" || p.kind === "number") {
-      const n = Number(v.replace(/[£,\s]/g, ""));
-      if (!Number.isFinite(n) || n < 0 || n > 1e13) throw new FriendlyError(p.kind === "money" ? "Give an amount in pounds, such as 2,500,000." : "Give a number, such as 120.", 400, "value");
+      const bare = v.replace(/[£,\s]/g, ""), n = Number(bare);
+      if (!/^\d+(\.\d+)?$/.test(bare) || n > 1e13) throw new FriendlyError(p.kind === "money" ? "Give an amount in pounds, such as 2,500,000." : "Give a number, such as 120.", 400, "value");
       v = String(Math.round(n * 100) / 100);
     } else if (p.kind === "choice") {
       const choices: string[] = p.choices ? JSON.parse(p.choices) : [];

@@ -810,6 +810,12 @@ await test("circles round the middle keep apart, however uneven the shares", asy
   nodeNamed("Highways").click();
   await wait(() => hubName() === "Highways", "Highways");
   assert.ok(least() > 9, `15 functions ${least().toFixed(1)} apart`);
+  // labels above or below their circles are narrower than the gap between neighbours there
+  const lv = parseFloat(w.document.querySelector(".stage").dataset.lv);
+  for (const side of ["above", "below"]) {
+    const xs = [...w.document.querySelectorAll(`.nd.${side}`)].map((b) => parseFloat(b.style.left)).sort((a, z) => a - z);
+    for (let i = 1; i < xs.length; i++) assert.ok(xs[i] - xs[i - 1] >= lv - 0.01, `${side}: ${xs.join()} with labels ${lv}% wide`);
+  }
   // one big share and several tiny ones: the small circles are spread out rather than bunched in the big one's gap
   const org = await demoCall("/api/org/get"), drainage = org.items.find((x) => x.name === "Drainage");
   const added = [];
@@ -829,9 +835,39 @@ await test("circles round the middle keep apart, however uneven the shares", asy
   assert.ok(least() > 14, `uneven shares ${least().toFixed(1)} apart`);
   assert.equal(w.document.querySelectorAll(".hub-ring path").length, 1, "only shares that count are drawn on the ring");
   assert.equal(shareOf("Gully cleansing"), "100%"); assert.equal(shareOf("Culverts"), "0%");
+  // more than a ring can hold: a list
+  for (let k = 1; k <= 16; k++) added.push((await demoCall("/api/org/item", { action: "add", parentId: drainage.id, name: `Catchment ${k}` })).id);
+  w.location.hash = "/guidance";
+  await wait(() => !w.document.querySelector(".stage"), "another page");
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways", "Highways");
+  nodeNamed("Drainage").click();
+  await wait(() => hubName() === "Drainage" && w.document.querySelectorAll("[data-node]").length === 21, "21 processes");
+  assert.ok(w.document.querySelector(".stage").classList.contains("list"));
   for (const id of added) await demoCall("/api/org/item", { action: "remove", id });
-  w.document.querySelector("[data-hub]").click();
-  await wait(() => hubName() === "Highways", "back to Highways");
+  w.document.querySelector("[data-crumb='0']").click();
+  await wait(() => hubName() === "Northbridge Council", "back to the top");
+});
+await test("a member can't remove the standard items, only the lead", async () => {
+  const role = w.document.querySelector("#demo-role");
+  set(role, "member");
+  await wait(() => !/Authority lead/.test(w.document.querySelector("#account").textContent), "the member's view");
+  await openMap();
+  assert.equal(w.document.querySelector("#mi-remove"), null, "nothing to remove at the top");
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways", "Highways");
+  assert.equal(w.document.querySelector("#mi-remove"), null, "Highways can't be removed by a member");
+  const hw = (await demoCall("/api/org/get")).items.find((x) => x.name === "Highways");
+  const refused = await demoCall("/api/org/item", { action: "remove", id: hw.id, withEverything: true }).then(() => "", (e) => String(e?.message ?? e));
+  assert.match(refused, /only your authority's lead/i);
+  set(role, "lead");
+  await wait(() => /Authority lead/.test(w.document.querySelector("#account").textContent), "the lead's view");
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways" && w.document.querySelector("#mi-remove"), "the lead's Remove");
+  w.document.querySelector("[data-crumb='0']").click();
+  await wait(() => hubName() === "Northbridge Council", "back to the top");
 });
 await test("the sign-in card offers the Northbridge demonstration beside Sign in, as Clarion's does", async () => {
   // an earlier test may leave unsaved changes: say yes to leaving them

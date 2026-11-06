@@ -101,6 +101,8 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS va_org_items (id INTEGER PRIMARY KEY, authority_id INTEGER NOT NULL, parent_id INTEGER, level TEXT NOT NULL, name TEXT NOT NULL,
      std_key TEXT, service TEXT, weight REAL NOT NULL DEFAULT 100, sort INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, created_by TEXT, updated TEXT NOT NULL, updated_by TEXT)`,
   `CREATE INDEX IF NOT EXISTS va_org_items_authority ON va_org_items (authority_id)`,
+  // a standard item (the organisation, Highways, the standard functions) is on an authority's map at most once
+  `CREATE UNIQUE INDEX IF NOT EXISTS va_org_items_standard ON va_org_items (authority_id, std_key) WHERE std_key IS NOT NULL`,
   // property sheets: the facts (the FHRG's, scope 0, and each authority's own) and their values on each item
   `CREATE TABLE IF NOT EXISTS va_properties (id INTEGER PRIMARY KEY, scope_id INTEGER NOT NULL DEFAULT 0, key TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL,
      unit TEXT, choices TEXT, sort INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, created_by TEXT)`,

@@ -426,6 +426,20 @@ await test("a map starts with the organisation, Highways and the standard functi
   assert.equal(m.properties.filter((p) => p.fhrg).length, 7);
   assert.deepEqual(m.properties.find((p) => p.key === "fhrg.delivery-model").choices, ["In-house", "Outsourced", "Mixed"]);
   assert.equal((await call("/api/org/get", {}, ann)).items.length, m.items.length, "made once for the authority");
+  // the standard items are the toolkit's, not Bob's for having opened the map first: only the lead can remove them
+  assert.ok([root, hw, ...fns].every((x) => x.created_by === "toolkit"));
+  const r = await call("/api/org/item", { action: "remove", id: hw.id, withEverything: true }, bob);
+  expectStatus(r, 403);
+  expectStatus(await call("/api/org/item", { action: "remove", id: fns[0].id }, bob), 403);
+  assert.equal((await call("/api/org/get", {}, bob)).items.length, m.items.length);
+});
+await test("a map is started once, however many open it at the same moment", async () => {
+  const maps = await Promise.all([1, 2, 3, 4, 5, 6].map(() => call("/api/org/get", {}, dee)));
+  maps.forEach((m) => expectStatus(m, 200));
+  const rows = sql.prepare("SELECT level, COUNT(*) AS n FROM va_org_items WHERE authority_id = 3 GROUP BY level ORDER BY level").all().map((x) => [x.level, x.n]);
+  assert.deepEqual(rows, [["function", 15], ["organisation", 1], ["service", 1]]);
+  // and the database holds each standard item once, whatever asks
+  assert.throws(() => sql.prepare("INSERT INTO va_org_items (authority_id, level, name, std_key, created, updated) VALUES (3, 'function', 'Again', 'hw.drainage', 'x', 'x')").run(), /UNIQUE/);
 });
 await test("another authority's map is apart, and its items answer as if they weren't there", async () => {
   const mine = await call("/api/org/get", {}, bob), theirs = await call("/api/org/get", {}, cat);
@@ -446,6 +460,9 @@ await test("items can be added, renamed, weighted, reordered and removed", async
   expectStatus(p, 200);
   expectStatus(await call("/api/org/item", { action: "add", parentId: p.id, name: "Too deep" }, bob), 400, "nothing below a process");
   expectStatus(await call("/api/org/item", { action: "add", parentId: hw.id, name: "x" }, bob), 400, "a name too short");
+  // a service's name is refused, not quietly changed, when the Excel tool's files couldn't hold it
+  for (const name of ["🚗🚗", "Ω Roads", "S".repeat(61), "Parks/gardens"]) expectStatus(await call("/api/org/item", { action: "add", parentId: root.id, name }, bob), 400, name);
+  assert.ok(!(await call("/api/org/get", {}, bob)).items.some((x) => x.level === "service" && x.id !== hw.id && x.name === "Highways"), "no second Highways");
   const s = await call("/api/org/item", { action: "add", parentId: root.id, name: "Street cleansing" }, bob);
   expectStatus(s, 200);
   m = await call("/api/org/get", {}, bob);
@@ -465,6 +482,7 @@ await test("items can be added, renamed, weighted, reordered and removed", async
   expectStatus(await call("/api/org/item", { action: "remove", id: p.id }, other), 403, "only the lead, or whoever added it");
   const r = await call("/api/org/item", { action: "remove", id: fn.id }, ann);
   expectStatus(r, 409); assert.equal(r.below, 1);
+  expectStatus(await call("/api/org/item", { action: "remove", id: fn.id, withEverything: "false" }, ann), 409, "only a real yes removes what's below");
   expectStatus(await call("/api/org/item", { action: "remove", id: fn.id, withEverything: true }, ann), 200);
   expectStatus(await call("/api/org/item", { action: "remove", id: root.id }, ann), 400);
   m = await call("/api/org/get", {}, bob);
@@ -484,13 +502,16 @@ await test("property sheets: the FHRG's facts and an authority's own, checked as
   const m = await call("/api/org/get", {}, bob);
   const hw = m.items.find((x) => x.level === "service"), fact = (k) => m.properties.find((p) => p.key === k);
   expectStatus(await call("/api/org/fact", { itemId: hw.id, propertyId: fact("fhrg.revenue-budget").id, value: "£24,500,000" }, bob), 200);
-  expectStatus(await call("/api/org/fact", { itemId: hw.id, propertyId: fact("fhrg.revenue-budget").id, value: "lots" }, bob), 400);
+  for (const value of ["lots", "£", " , ", "0x1F", "-5", "1e3", "20000000000000"]) expectStatus(await call("/api/org/fact", { itemId: hw.id, propertyId: fact("fhrg.revenue-budget").id, value }, bob), 400, value);
   expectStatus(await call("/api/org/fact", { itemId: hw.id, propertyId: fact("fhrg.delivery-model").id, value: "mixed" }, bob), 200);
   expectStatus(await call("/api/org/fact", { itemId: hw.id, propertyId: fact("fhrg.delivery-model").id, value: "Partly" }, bob), 400);
   let v = (await call("/api/org/get", {}, bob)).values[hw.id];
   assert.equal(v[fact("fhrg.revenue-budget").id], "24500000"); assert.equal(v[fact("fhrg.delivery-model").id], "Mixed");
   const own = await call("/api/org/fact-add", { name: "Gritters", kind: "number", unit: "vehicles" }, bob);
   expectStatus(own, 200);
+  const note = await call("/api/org/fact-add", { name: "Depot notes", kind: "text" }, bob);
+  expectStatus(await call("/api/org/fact", { itemId: hw.id, propertyId: note.id, value: "x".repeat(201) }, bob), 400, "text is kept short");
+  expectStatus(await call("/api/org/fact", { itemId: hw.id, propertyId: note.id, value: "Two depots, one shared" }, bob), 200);
   expectStatus(await call("/api/org/fact-add", { name: "gritters", kind: "number" }, ann), 409);
   expectStatus(await call("/api/org/fact-add", { name: "Depot type", kind: "choice", choices: "Owned" }, ann), 400, "a choice needs two");
   assert.ok((await call("/api/org/get", {}, ann)).properties.some((p) => p.id === own.id && !p.fhrg));
