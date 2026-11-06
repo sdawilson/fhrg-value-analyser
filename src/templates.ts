@@ -8,7 +8,7 @@ import type { Row, Stmt } from "./db";
 import { audit, exec, q } from "./db";
 import { VA_TYPE, fileName, storageDelete, storageList, storagePut, storageText } from "./storage";
 import { FriendlyError, checkName, cleanText, excelDate, json, now, readJsonBody } from "./util";
-import { cleanService } from "./services";
+import { cleanService, listedService } from "./services";
 import { checkVaFile, encodeCp1252, headerValue, structureKey, vaRows } from "./vafile";
 
 export const TEMPLATE_COLS = "t.id, t.scope_id, t.name, t.profile_type, t.description, t.factors, t.dimensions, t.structure, t.is_default, t.visible, t.levels, t.service, t.version, t.bytes, t.created, t.created_by, t.updated, t.updated_by";
@@ -121,7 +121,7 @@ export async function handleTemplateSave(c: Config, request: Request): Promise<R
   const t = now();
   const profileType = cleanText(b.profileType, 100) || headerValue(text, "Profile Type") || null;
   const levels = cleanLevels(b.levels ?? headerValue(text, "Template Levels"));
-  const service = cleanService(b.service ?? headerValue(text, "Template Service"));
+  const service = await listedService(c, b.service ?? headerValue(text, "Template Service"));
   const fields = [name, name.toLowerCase(), profileType, cleanText(b.description, 1000) || null, key, rows.length, new Set(rows.map((r) => r.dimension)).size, structureKey(rows), bytes.length, levels, service];
   let newId = id, version = 1;
   if (existing) {

@@ -15,6 +15,13 @@ export function cleanService(v: unknown): string {
   return s || DEFAULT_SERVICE;
 }
 
+// a service as the list spells it ("waste" is "Waste"), or as given when it isn't on the list
+export async function listedService(c: Config, v: unknown): Promise<string> {
+  const s = cleanService(v);
+  const found = (await q(c, "SELECT name FROM va_services WHERE name_key = ? ORDER BY scope_id LIMIT 1", s.toLowerCase()))[0];
+  return found ? String(found.name) : s;
+}
+
 // The FHRG's services and the authority's own (every authority's, for a site administrator who asks for all)
 export async function handleServiceList(c: Config, request: Request): Promise<Response> {
   const me = await requireMe(c, request);

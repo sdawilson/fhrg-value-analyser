@@ -2898,9 +2898,9 @@ async function pageNew(q) {
   const tpls = await templates(true);
   const pick = q && q.get("template") ? tpls.find((t) => String(t.id) === q.get("template")) : null;
   if (pick) return newForm(pick);
-  const fh = tpls.filter((t) => t.fhrg), own = tpls.filter((t) => !t.fhrg);
+  const fh = tpls.filter((t) => t.fhrg), own = tpls.filter((t) => !t.fhrg && t.visible !== false);
   const card = (t) => `<article class="tcard"><div class="row" style="justify-content:space-between"><span class="chip">${esc(t.profile_type || "Any type")}</span>${t.is_default ? `<span class="chip navy">FHRG standard</span>` : ""}</div>
-    <h3>${esc(t.name)}</h3>${t.description ? `<p>${esc(t.description)}</p>` : ""}<p class="small">${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")} · ${VA.levelsOf(t.levels).map(([, l]) => l).join(", ")} level</p>
+    <h3>${esc(t.name)}</h3>${t.description ? `<p>${esc(t.description)}</p>` : ""}<p class="small"><strong>${esc(svcName(t))}</strong> · ${esc(levelsText(t.levels))} level · ${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")}</p>
     <div class="row"><a class="btn small" href="${href(`/new?template=${t.id}`)}" data-nav>Use this template</a><a class="btn small quiet" href="${href(`/templates/${t.id}`)}" data-nav>Look inside</a></div></article>`;
   main().innerHTML = page("New assessment", `
     <h2 class="h3">FHRG templates</h2><div class="cards">${fh.map(card).join("") || `<div class="empty">No FHRG templates yet.</div>`}</div>
@@ -2917,7 +2917,7 @@ async function newForm(t) {
   main().innerHTML = page("New assessment", `<div class="grid-2"><form class="form" id="nf" novalidate>
     <div id="nf-msg"></div>
     <div class="field"><label for="nf-name">Assessment name</label><p class="hint">It becomes the file's name, so it can't contain \\ / : * ? " &lt; &gt; |</p><input id="nf-name" name="name" type="text" value="${esc(suggested)}" required></div>
-    <div class="row2"><div class="field"><label for="nf-type">Assessment type</label><select id="nf-type" name="type">${VA.PROFILE_TYPES.map((x) => `<option ${x === typeDefault ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
+    <div class="row2"><div class="field"><label for="nf-type">Assessment type</label><select id="nf-type" name="type">${[...new Set([typeDefault, ...VA.PROFILE_TYPES])].map((x) => `<option ${x === typeDefault ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
       <div class="field"><label for="nf-year">Reporting year</label><select id="nf-year" name="year">${reportingYears().map((y) => `<option ${y === year ? "selected" : ""}>${y}</option>`).join("")}</select></div></div>
     <div class="row2"><div class="field"><label for="nf-ap">Authority profile</label><select id="nf-ap" name="ap"><option value="">Not set</option>${VA.AUTHORITY_PROFILES.map((x) => `<option>${esc(x)}</option>`).join("")}</select></div>
       <div class="field"><label for="nf-assessor">Assessor</label><input id="nf-assessor" name="assessor" type="text" value="${esc(A.me.name)}"></div></div>
@@ -3798,7 +3798,7 @@ async function renderBenchmark() {
         } catch (err) { fail(err, $("#bm-msg")); }
       }, "Comparing…"));
     } else if (src === "fhrg") {
-      opts.innerHTML = sets.length ? `<div class="field" style="max-width:40rem"><label for="bm-set">Benchmark</label><select id="bm-set"><option value="">Choose a benchmark</option>${sets.map((s) => `<option value="${s.id}">${esc(s.name)} (${esc([s.profile_type, s.reporting_year, s.members ? plural(s.members, "authority", "authorities") : ""].filter(Boolean).join(", "))})</option>`).join("")}</select></div>` : `<p class="muted">The FHRG team hasn't published any benchmarks yet. Try a live comparison with other authorities.</p>`;
+      opts.innerHTML = sets.length ? `<div class="field" style="max-width:40rem"><label for="bm-set">Benchmark</label><select id="bm-set"><option value="">Choose a benchmark</option>${sets.map((s) => `<option value="${s.id}">${esc(s.name)} (${esc([s.profile_type, String(s.profile_type || "").toLowerCase().includes(svcName(s).toLowerCase()) ? "" : svcName(s), s.reporting_year, s.members ? plural(s.members, "authority", "authorities") : ""].filter(Boolean).join(", "))})</option>`).join("")}</select></div>` : `<p class="muted">The FHRG team hasn't published any benchmarks yet. Try a live comparison with other authorities.</p>`;
       $("#bm-set")?.addEventListener("change", async (e) => {
         if (!e.target.value) return;
         try {
@@ -4535,13 +4535,15 @@ async function adminTemplates(body) {
   body.innerHTML = `${r.added ? `<div class="notice ok"><p>${plural(r.added, "template file")} found in templates/fhrg/ ${r.added === 1 ? "was" : "were"} added.</p></div>` : ""}
     <div class="row" style="margin-bottom:1rem"><a class="btn small" href="${href("/templates/new?scope=fhrg")}" data-nav>${ICON.plus} New FHRG template</a><label class="btn small secondary" for="up-tpl">${ICON.file} Upload a .vt2 or .va2 as an FHRG template</label><input id="up-tpl" type="file" accept=".vt2,.va2" hidden></div>
     <div class="table-wrap"><table class="mini"><thead><tr><th>Template</th><th>Kept by</th><th>Type</th><th class="num">Rows</th><th class="num">Used</th><th>Status</th><th></th></tr></thead><tbody>
-    ${rows.map((t) => `<tr><td><a href="${href(`/templates/${t.id}`)}" data-nav><strong>${esc(t.name)}</strong></a><span class="sub small muted" style="display:block">v${t.version} · ${esc(ago(t.updated))}</span></td><td>${t.fhrg ? "FHRG" : esc(t.authority_name || "")}</td><td>${esc(t.profile_type || "")}</td><td class="num">${t.factors ?? ""}</td><td class="num">${t.used ?? 0}</td>
+    ${rows.map((t) => `<tr><td><a href="${href(`/templates/${t.id}`)}" data-nav><strong>${esc(t.name)}</strong></a><span class="sub small muted" style="display:block">v${t.version} · ${esc(ago(t.updated))}</span></td><td>${t.fhrg ? "FHRG" : esc(t.authority_name || "")}</td><td>${esc(t.profile_type || "")}<span class="sub small muted" style="display:block">${esc(svcName(t))} · ${esc(levelsText(t.levels))} level</span></td><td class="num">${t.factors ?? ""}</td><td class="num">${t.used ?? 0}</td>
       <td>${t.is_default ? `<span class="chip navy">Default</span>` : ""} ${t.visible ? "" : `<span class="chip warn">Hidden</span>`}</td>
       <td><div class="row">${t.fhrg && !t.is_default ? `<button class="btn small secondary" type="button" data-t="${t.id}" data-x="default">Make default</button>` : ""}
         ${t.fhrg && !t.is_default ? `<button class="btn small quiet" type="button" data-t="${t.id}" data-x="${t.visible ? "hide" : "show"}">${t.visible ? "Hide" : "Show"}</button>` : ""}
         ${!t.fhrg ? `<button class="btn small secondary" type="button" data-t="${t.id}" data-x="promote">Copy to FHRG</button>` : ""}
         ${!t.is_default ? `<button class="btn small danger" type="button" data-t="${t.id}" data-x="delete">Delete</button>` : ""}</div></td></tr>`).join("")}
-    </tbody></table></div><p class="small muted">The default template for each type is offered first when members start an assessment. Hidden FHRG templates stay available to assessments already made from them.</p>`;
+    </tbody></table></div><p class="small muted">The default template for each type is offered first when members start an assessment. Hidden FHRG templates stay available to assessments already made from them.</p>
+    <div id="admin-svcs"></div>`;
+  adminServices($("#admin-svcs"));
   $$("[data-x]").forEach((b) => b.addEventListener("click", async () => {
     const t = rows.find((x) => x.id === Number(b.dataset.t)), act = b.dataset.x;
     let extra = {};
@@ -4558,17 +4560,40 @@ async function adminTemplates(body) {
     } catch (err) { fail(err); }
   });
 }
+// the services templates and assessments can be for: the FHRG's list, which the team keeps, and authorities' own
+async function adminServices(el) {
+  if (!el) return;
+  let list = [];
+  try { list = (await api("/api/services/list", { all: true })).services; } catch (e) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="card" style="margin-top:1.5rem"><h2>Services</h2><p class="small muted">What templates and assessments are for. The FHRG's services are offered to every member authority, and an authority can add its own when it copies a template. Benchmarks only compare assessments of the same service. ${esc(VA.DEFAULT_SERVICE)} is the service of anything that doesn't say.</p>
+    <div class="table-wrap"><table class="mini"><thead><tr><th>Service</th><th>Kept by</th><th class="num">Templates</th><th></th></tr></thead><tbody>
+    ${list.map((s) => `<tr><td>${esc(s.name)}</td><td>${s.fhrg ? "FHRG" : esc(s.authority_name || "An authority")}</td><td class="num">${s.templates ?? ""}</td><td>${s.name.toLowerCase() === VA.DEFAULT_SERVICE.toLowerCase() ? "" : `<button class="btn small quiet" type="button" data-svc-del="${s.id}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
+    <form class="row" id="svc-add" novalidate style="margin-top:0.75rem"><input type="text" name="name" aria-label="A new FHRG service" placeholder="A new FHRG service" maxlength="60" style="max-width:20rem"><button class="btn small" type="submit">Add</button></form><div id="svc-msg"></div></div>`;
+  $("#svc-add", el).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = e.target.name.value.trim();
+    if (!name) return;
+    try { const r = await api("/api/services/add", { name, scope: "fhrg" }); A.services = null; toast(r.added ? `${r.service.name} added.` : `${r.service.name} is already on the list.`); adminServices(el); } catch (err) { fail(err, $("#svc-msg", el)); }
+  });
+  $$("[data-svc-del]", el).forEach((b) => b.addEventListener("click", async () => {
+    const s = list.find((x) => x.id === Number(b.dataset.svcDel));
+    if (!(await confirmBox("Remove this service?", `"${esc(s.name)}" will no longer be offered. A service that's in use can't be removed.`, "Remove", true))) return;
+    try { await api("/api/admin/service-delete", { id: s.id }); A.services = null; toast("Removed."); adminServices(el); } catch (err) { fail(err, $("#svc-msg", el)); }
+  }));
+}
 async function adminBenchmarks(body) {
   const r = await api("/api/admin/benchmarks");
   const opts = r.options;
   const types = [...new Set([...VA.PROFILE_TYPES, ...opts.map((o) => o.profile_type).filter(Boolean)])];
+  const svcs = [...new Map([...(await services()), ...opts.map((o) => ({ name: svcName(o) }))].map((s) => [s.name.toLowerCase(), s])).values()];
   body.innerHTML = `
     <div class="card"><h2>Build a benchmark from shared assessments</h2>
       <p class="small muted">Uses each authority's most recent shared assessment that matches. Members only ever see the averages.</p>
-      ${opts.length ? `<div class="table-wrap" style="margin-bottom:1rem"><table class="mini"><thead><tr><th>Type</th><th>Year</th><th>Authority profile</th><th>Template</th><th class="num">Authorities</th><th></th></tr></thead><tbody>
-        ${opts.map((o, k) => `<tr><td>${esc(o.profile_type || "")}</td><td>${esc(o.reporting_year || "")}</td><td>${esc(o.authority_profile || "")}</td><td>${esc(o.template_name || "")}</td><td class="num">${o.authorities}</td><td><button class="btn small quiet" type="button" data-opt="${k}">Use these</button></td></tr>`).join("")}</tbody></table></div>` : ""}
+      ${opts.length ? `<div class="table-wrap" style="margin-bottom:1rem"><table class="mini"><thead><tr><th>Type</th><th>Service</th><th>Year</th><th>Authority profile</th><th>Template</th><th class="num">Authorities</th><th></th></tr></thead><tbody>
+        ${opts.map((o, k) => `<tr><td>${esc(o.profile_type || "")}</td><td>${esc(svcName(o))}</td><td>${esc(o.reporting_year || "")}</td><td>${esc(o.authority_profile || "")}</td><td>${esc(o.template_name || "")}</td><td class="num">${o.authorities}</td><td><button class="btn small quiet" type="button" data-opt="${k}">Use these</button></td></tr>`).join("")}</tbody></table></div>` : ""}
       <form class="form wide" id="bb" novalidate style="grid-template-columns:repeat(3,minmax(0,1fr));max-width:none">
         <div class="field"><label for="bb-type">Type</label><select id="bb-type" name="profile_type">${types.map((t) => `<option>${esc(t)}</option>`).join("")}</select></div>
+        <div class="field"><label for="bb-svc">Service</label><select id="bb-svc" name="service">${svcs.map((s) => `<option>${esc(s.name)}</option>`).join("")}</select></div>
         <div class="field"><label for="bb-year">Reporting year</label><select id="bb-year" name="reporting_year"><option value="">Any</option>${reportingYears().map((y) => `<option>${y}</option>`).join("")}</select></div>
         <div class="field"><label for="bb-ap">Authority profile</label><select id="bb-ap" name="authority_profile"><option value="">All</option>${VA.AUTHORITY_PROFILES.map((x) => `<option>${esc(x)}</option>`).join("")}</select></div>
         <div class="field"><label for="bb-stat">Average</label><select id="bb-stat" name="statistic"><option value="mean">Mean</option><option value="median">Median</option></select></div>
@@ -4583,7 +4608,7 @@ async function adminBenchmarks(body) {
         <td><div class="row"><button class="btn small quiet" type="button" data-b="${s.id}" data-y="edit">Edit</button><button class="btn small quiet" type="button" data-b="${s.id}" data-y="vis">${s.visible ? "Hide" : "Show"}</button><button class="btn small danger" type="button" data-b="${s.id}" data-y="del">Delete</button></div></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">None yet.</p>`}</div>`;
   $$("[data-opt]").forEach((b) => b.addEventListener("click", () => {
     const o = opts[Number(b.dataset.opt)];
-    $("#bb-type").value = o.profile_type || ""; $("#bb-year").value = o.reporting_year || ""; $("#bb-ap").value = o.authority_profile || "";
+    $("#bb-type").value = o.profile_type || ""; $("#bb-svc").value = svcName(o); $("#bb-year").value = o.reporting_year || ""; $("#bb-ap").value = o.authority_profile || "";
     $("#bb-structure").value = o.structure || ""; $("#bb-tname").value = o.template_name || "";
     $("#bb-tpl").textContent = o.template_name ? `Template: ${o.template_name}` : "";
     $("#bb-name").focus();

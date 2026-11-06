@@ -4,7 +4,7 @@
 //    when at least MIN_PEERS authorities are in it
 import { requireMe, requireSiteAdmin } from "./accounts";
 import { assessmentFor, cleanSummary } from "./assessments";
-import { DEFAULT_SERVICE, cleanService } from "./services";
+import { DEFAULT_SERVICE, cleanService, listedService } from "./services";
 import type { Config } from "./config";
 import type { Row, Val } from "./db";
 import { audit, exec, q } from "./db";
@@ -145,7 +145,7 @@ export async function handleBenchmarkBuild(c: Config, request: Request): Promise
   const year = cleanText(b.reporting_year, 20);
   const authorityProfile = cleanText(b.authority_profile, 100);
   const structure = cleanText(b.structure, 40);
-  const service = cleanService(b.service);
+  const service = await listedService(c, b.service);
   const statistic = b.statistic === "median" ? "median" : "mean";
   const peers = await peerSummaries(c, { profileType, service, year, authorityProfile, structure });
   const min = Math.max(c.minPeers, Number(b.min_members) || 0);
@@ -172,7 +172,7 @@ export async function handleBenchmarkSave(c: Config, request: Request): Promise<
   const id = Number(b.id) || 0;
   const name = cleanText(b.name, 150);
   if (!name) throw new FriendlyError("Give the benchmark a name.", 400, "name");
-  const fields = [name, cleanText(b.description, 300) || null, cleanText(b.profile_type, 100) || null, cleanService(b.service), cleanText(b.reporting_year, 20) || null, cleanText(b.authority_profile, 100) || null, b.visible === false || b.visible === 0 ? 0 : 1];
+  const fields = [name, cleanText(b.description, 300) || null, cleanText(b.profile_type, 100) || null, await listedService(c, b.service), cleanText(b.reporting_year, 20) || null, cleanText(b.authority_profile, 100) || null, b.visible === false || b.visible === 0 ? 0 : 1];
   const t = now();
   if (id) {
     const r = (await q(c, "SELECT id FROM va_benchmarks WHERE id = ?", id))[0];
