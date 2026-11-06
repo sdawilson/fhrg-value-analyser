@@ -354,5 +354,26 @@ await test("the template names are clean", () => {
   const names = Array.from(w.eval("STARTERS")).flatMap((s) => Array.from(s.rows).map((r) => r[2]));
   assert.deepEqual(names.filter((n) => / \? /.test(n)), []);
 });
+await test("the sign-in card offers the Northbridge demonstration beside Sign in, as Clarion's does", async () => {
+  // an earlier test may leave unsaved changes: say yes to leaving them
+  const leave = () => w.document.querySelector("dialog.ask[open] button[value=ok]")?.click();
+  leave();
+  w.location.hash = "/";
+  await wait(() => (leave(), w.document.querySelector("#signout") && /Northbridge Value for Money 2025-26/.test(w.document.querySelector("#main").textContent)), "the assessments");
+  w.document.querySelector("#signout").click();
+  await wait(() => (leave(), w.document.querySelector("#signin")), "the sign-in card");
+  const card = w.document.querySelector(".auth-sign .auth-card");
+  assert.ok(card, "the framed card");
+  assert.ok(w.document.body.classList.contains("auth-page"), "the site's header and footer step aside");
+  const row = w.document.querySelector("#signin button[type=submit]").parentElement;
+  const demo = row.querySelector("#si-demo");
+  assert.equal(demo.getAttribute("href"), "/demo");
+  assert.match(demo.textContent, /Explore the Northbridge demonstration/);
+  assert.match(card.textContent, /Northbridge is a fictional authority/);
+  assert.match(card.textContent, /Forgotten your password\?/);
+  assert.ok(card.querySelector("img.auth-logo").getAttribute("src").startsWith("data:image/"));
+  w.location.hash = "/guidance";
+  await wait(() => !w.document.body.classList.contains("auth-page"), "the header to come back on another page");
+});
 dom.window.close();
 process.exit(failures ? 1 : 0);
