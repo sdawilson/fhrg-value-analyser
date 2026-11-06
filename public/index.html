@@ -452,6 +452,7 @@ body:has(.sum-strip) .toasts { bottom: 5.5rem; }
 .dim-head .toggle { background: none; border: 0; padding: 0.2rem; cursor: pointer; color: var(--slate); font-size: 1rem; line-height: 1; width: 1.6rem; }
 .dim-head .stats { display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; font-size: 0.88rem; color: var(--ink-soft); align-items: center; justify-content: end; }
 .dim-head .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.dim-head .stats .fair { font-size: 0.82rem; }
 .dim-head .mini { display: inline-block; width: 5rem; height: 0.45rem; background: var(--haze); border-radius: 4px; overflow: hidden; vertical-align: middle; margin-left: 0.35rem; position: relative; }
 .dim-head .mini span { display: block; height: 100%; background: var(--c-score); }
 .dim-head .mini em { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); }
@@ -994,13 +995,15 @@ const VA = (() => {
           // Template Weighting Method:= Simple, then Template Weighting:= <ID>|e|<dimension>|e|<factor>|e|<weighting>
           const tw = trimmed.match(/^Template Weighting( Method)?:= ?(.*)$/);
           if (tw) {
-            const tws = (doc.templateWeights ??= { method: "simple", w: {} });
+            const tws = (doc.templateWeights ??= { method: "simple", w: {}, seen: {} });
             if (tw[1]) { tws.method = /^tree$/i.test(tw[2].trim()) ? "tree" : "simple"; break; }
             const parts = tw[2].split("|e|");
             if (parts.length < 4) break;
             const w = parts.pop().trim(), id = parts.shift().trim(), dimension = parts.shift().replace(/<lf>/g, "\n");
             const idv = id !== "" && Number.isFinite(Number(id)) ? Number(id) : id;
-            tws.w[weightKey({ id: idv, dimension, factor: parts.join("|e|").replace(/<lf>/g, "\n") })] = w === "" || !Number.isFinite(Number(w)) ? null : Number(w);
+            const base = weightKey({ id: idv, dimension, factor: parts.join("|e|").replace(/<lf>/g, "\n") }), n = tws.seen[base] || 0;
+            tws.seen[base] = n + 1;
+            tws.w[n ? `${base}#${n}` : base] = w === "" || !Number.isFinite(Number(w)) ? null : Number(w);
             break;
           }
           const m = trimmed.match(/^Template (Levels|Description):= ?(.*)$/);
@@ -1023,6 +1026,9 @@ const VA = (() => {
     }
     delete doc._tableFound;
     if (!doc.rows.length) warnings.push("The file has no factors.");
+    // a copy of the template's weightings only means something while they're unlocked
+    if (doc.templateWeights) delete doc.templateWeights.seen;
+    if (doc.weightsLocked !== false) doc.templateWeights = null;
     // the Excel tool's two stamps for what kind of file this is
     if (doc.profile.Profile_Type && !doc.kind) doc.kind = "assessment";
     // the workbook switches to tree weighting row by row, wherever Tree_Weighting has a value
@@ -1140,6 +1146,11 @@ const VA = (() => {
     return `${isNum(r.id) ? r.id : ""}|${norm(r.factor)}`;
   }
   const weightKey = (r) => `${norm(r.dimension)}|${factorKey(r)}`;
+  // each row's key, in order, with a count added where a dimension repeats one ("…#1"), so no two rows share a key
+  function weightKeys(rows) {
+    const seen = {};
+    return rows.map((r) => { const k = weightKey(r), n = seen[k] || 0; seen[k] = n + 1; return n ? `${k}#${n}` : k; });
+  }
   const hasOwn = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
   // the answers a row offers: the template's own scale, a built-in one, or the default
   function scaleFor(doc, range) {
@@ -1411,11 +1422,14 @@ const VA = (() => {
     if (doc.weightsLocked === false && doc.kind !== "template" && doc.templateWeights) {
       const tw = doc.templateWeights;
       settings.push(`   Template Weighting Method:= ${tw.method === "tree" ? "Tree" : "Simple"}`);
-      for (const r of doc.rows) {
-        const k = weightKey(r);
-        if (!hasOwn(tw.w, k)) continue;
-        settings.push(`   Template Weighting:= ${flat(r.id ?? "")}|e|${flat(r.dimension)}|e|${flat(r.factor)}|e|${isNum(tw.w[k]) ? vbaNum(tw.w[k]) : ""}`);
-      }
+      const keys = weightKeys(doc.rows);
+      doc.rows.forEach((r, i) => {
+        const k = keys[i];
+        if (!hasOwn(tw.w, k)) return;
+        // written as the table writes them, so they read back the same
+        const text = (x) => flat(cellText(x));
+        settings.push(`   Template Weighting:= ${text(r.id ?? "")}|e|${text(r.dimension)}|e|${text(r.factor)}|e|${isNum(tw.w[k]) ? vbaNum(tw.w[k]) : ""}`);
+      });
     }
     if (settings.length) out.push("Begin Template Settings", ...settings, "End Section");
     for (const s of doc.extraSections || []) out.push(`Begin ${s.name}`, ...s.lines, "End Section");
@@ -1468,32 +1482,42 @@ const VA = (() => {
   // Unlocking keeps a copy of the template's weightings (the ones in use while locked), so an assessment's
   // dimension and overall scores can be put back on them to compare like for like with a benchmark.
   function weightSnapshot(doc) {
-    const w = {};
-    for (const r of doc.rows) w[weightKey(r)] = isNum(r.weight) ? r.weight : null;
+    const w = {}, keys = weightKeys(doc.rows);
+    doc.rows.forEach((r, i) => (w[keys[i]] = isNum(r.weight) ? r.weight : null));
     return { method: doc.weighting === "tree" ? "tree" : "simple", w };
   }
-  // whether an unlocked assessment's weightings now differ from its template's
-  function weightsDiffer(doc) {
+  // A factor that doesn't apply: weighted 0 (or not at all) and left unanswered, as the templates' guidance asks for
+  // a "Where Applicable" factor that isn't. Comparisons leave it out, as the authority has, rather than score it 0.
+  const notApplicable = (r) => !!r.range && !(isNum(r.weight) && r.weight > 0) && !String(r.score || "").trim() && !isNum(r.scoreOv);
+  // the template's weighting for each row: as it was, or (for comparing) kept out where the factor doesn't apply
+  function templateWeightOf(doc, forComparing) {
+    const t = doc.templateWeights, keys = weightKeys(doc.rows);
+    return doc.rows.map((r, i) => (forComparing && notApplicable(r) ? (isNum(r.weight) ? r.weight : null) : hasOwn(t.w, keys[i]) ? (isNum(t.w[keys[i]]) ? t.w[keys[i]] : null) : isNum(r.weight) ? r.weight : null));
+  }
+  // whether an unlocked assessment's weightings differ from its template's (for comparing: other than factors
+  // that don't apply)
+  function weightsDiffer(doc, forComparing = false) {
     const t = doc.templateWeights;
     if (!t || doc.weightsLocked !== false) return false;
     if ((doc.weighting === "tree" ? "tree" : "simple") !== t.method) return true;
-    return doc.rows.some((r) => { const k = weightKey(r); return hasOwn(t.w, k) && (isNum(t.w[k]) ? t.w[k] : null) !== (isNum(r.weight) ? r.weight : null); });
+    const tw = templateWeightOf(doc, forComparing);
+    return doc.rows.some((r, i) => tw[i] !== (isNum(r.weight) ? r.weight : null));
   }
-  // puts the template's weightings back on the assessment itself
-  function restoreTemplateWeights(doc) {
+  // puts the template's weightings back on the assessment itself (all of them, when locking again)
+  function restoreTemplateWeights(doc, forComparing = false) {
     const t = doc.templateWeights;
     if (!t) return doc;
+    const tw = templateWeightOf(doc, forComparing);
     doc.weighting = t.method;
-    for (const r of doc.rows) {
-      const k = weightKey(r);
-      if (hasOwn(t.w, k)) r.weight = isNum(t.w[k]) ? t.w[k] : null;
+    doc.rows.forEach((r, i) => {
+      r.weight = tw[i];
       r.treeWeight = t.method === "tree" ? (isNum(r.treeWeight) ? r.treeWeight : 0) : null;
-    }
+    });
     return doc;
   }
-  // the assessment on its template's weightings, for comparing; itself when they're the same
+  // the assessment on its template's weightings, for comparing; itself when that makes no difference
   function onTemplateWeights(doc) {
-    return weightsDiffer(doc) ? restoreTemplateWeights({ ...doc, rows: doc.rows.map((r) => ({ ...r })) }) : doc;
+    return weightsDiffer(doc, true) ? restoreTemplateWeights({ ...doc, rows: doc.rows.map((r) => ({ ...r })) }, true) : doc;
   }
 
   // a new assessment from a template
@@ -1546,7 +1570,7 @@ const VA = (() => {
       dims: c.dims.map((d) => ({ name: d.name, score: r2(d.score), conf: r2(d.conf), opp: r2(d.opp), share: r2(d.weightShare), factors: d.factors, answered: d.answered })),
       factors,
       // weightings changed from the template's: the dimension and overall scores on the template's, which benchmarks use
-      ...(weightsDiffer(doc) ? { template: onTemplate(calculate(onTemplateWeights(doc)), r2) } : {}),
+      ...(weightsDiffer(doc, true) ? { template: onTemplate(calculate(onTemplateWeights(doc)), r2) } : {}),
       network: readNum(doc.profile.Profile_Network_Length),
       budget: readNum(doc.profile.Profile_Highways_Budget),
       population: readNum(doc.profile.Profile_Served_Population),
@@ -1605,7 +1629,7 @@ const VA = (() => {
     WEIGHTS_SIMPLE, WEIGHTS_EXPANDED, PALETTE,
     isNum, clean, norm, bracketValue, answerLabel, excelColour, cssToExcel, vbaNum, readNum,
     decodeBytes, encodeCp1252, parse, write, blankDoc, headingFlags, dimensions, factorKey, scaleFor, allScales, renumber,
-    calculate, treeWeights, toTemplate, fromTemplate, clone, weightKey, weightSnapshot, weightsDiffer, restoreTemplateWeights, onTemplateWeights, guidanceFor, answerName, LEVELS, levelsOf, summarise, structureKey, aggregate, stamp, ukDate,
+    calculate, treeWeights, toTemplate, fromTemplate, clone, weightKey, weightKeys, weightSnapshot, weightsDiffer, restoreTemplateWeights, onTemplateWeights, guidanceFor, answerName, LEVELS, levelsOf, summarise, structureKey, aggregate, stamp, ukDate,
   };
 })();
 
@@ -2970,7 +2994,7 @@ function newWs({ id, doc, meta = {}, dirty = false, version = 0 }) {
 const wsCalc = () => (A.ws.calc = VA.calculate(A.ws.doc, A.ws.bench ? A.ws.bench.factors : null));
 // Beside a benchmark: an assessment whose weightings differ from its template's is put back on the template's,
 // so its dimension and overall scores compare like for like. Null when they're the same.
-const fairCalc = () => (VA.weightsDiffer(A.ws.doc) ? VA.calculate(VA.onTemplateWeights(A.ws.doc), A.ws.bench ? A.ws.bench.factors : null) : null);
+const fairCalc = () => (VA.weightsDiffer(A.ws.doc, true) ? VA.calculate(VA.onTemplateWeights(A.ws.doc), A.ws.bench ? A.ws.bench.factors : null) : null);
 
 async function pageWorkspace(idStr, tab) {
   const id = idStr === "local" ? 0 : Number(idStr);
@@ -2980,6 +3004,7 @@ async function pageWorkspace(idStr, tab) {
     const r = await api("/api/assessments/open", { id });
     const { doc, warnings } = VA.parse(r.va2, `${r.assessment.name}.va2`);
     await addGuidance(doc, r.assessment);
+    await addTemplateWeights(doc, r.assessment);
     A.ws = newWs({ id, doc, meta: r.assessment, version: r.assessment.version });
     if (warnings.length) setTimeout(() => toast(warnings[0], 7000), 300);
   }
@@ -2994,6 +3019,17 @@ async function addGuidance(doc, meta) {
     const t = list.find((x) => x.id === meta.template_id) || list.find((x) => x.fhrg && x.is_default && x.structure === meta.structure);
     if (t) doc.guidance = VA.parse((await api("/api/templates/get", { id: t.id })).vt2, "t.vt2").doc.guidance;
   } catch { /* the assessment still opens */ }
+}
+
+// An assessment unlocked before copies of the template's weightings were kept takes one from its template,
+// if that's still there with the same factors
+async function addTemplateWeights(doc, meta) {
+  if (doc.weightsLocked !== false || doc.templateWeights || !meta.template_id) return;
+  try {
+    const t = (await templates()).find((x) => x.id === meta.template_id);
+    if (!t || (meta.structure && t.structure !== meta.structure)) return;
+    doc.templateWeights = VA.weightSnapshot(VA.parse((await api("/api/templates/get", { id: t.id })).vt2, "t.vt2").doc);
+  } catch { /* compared on its own weightings, as the note says */ }
 }
 
 function renderWs(tab) {
@@ -3209,7 +3245,7 @@ function renderScorecard() {
     </div>
     <div class="lock-box"><label class="check"><input type="checkbox" id="sc-lock" ${doc.weightsLocked !== false ? "checked" : ""}> <span>Weightings locked</span></label>
       <label class="check totals-box"><input type="checkbox" id="sc-totals" ${rowTotalsOn() ? "checked" : ""}> <span>Show row totals</span></label>
-      ${doc.weightsLocked === false ? `<span class="lock-warn" id="sc-lock-warn">Unlocked. Beside a benchmark, your scores are put back on the template's weightings so they compare like for like.</span>` : `<span class="small muted">The template's weightings, so scores compare like for like in benchmarking.</span>`}</div>
+      ${doc.weightsLocked === false ? `<span class="lock-warn" id="sc-lock-warn">${doc.templateWeights ? "Unlocked. Beside a benchmark, your scores are put back on the template's weightings so they compare like for like." : "Unlocked, with no copy of the template's weightings, so these weightings are the ones compared."}</span>` : `<span class="small muted">The template's weightings, so scores compare like for like in benchmarking.</span>`}</div>
     <div class="sc ${ws.bench ? "show-bench" : ""} ${rowTotalsOn() ? "show-totals" : ""}" id="sc">
     ${dims.map((d, di) => {
       const idx = doc.rows.map((r, i) => (r.dimension === d ? i : -1)).filter((i) => i >= 0);
@@ -3254,7 +3290,7 @@ function renderScorecard() {
     const go = await confirmBox("Unlock the weightings?", "Unlocking weightings may break benchmarking: your overall and dimension scores will use your own weightings, so they won't match other authorities' like for like. To keep comparisons fair, a copy of the template's weightings is kept, and your scores are put back on them wherever they're compared with a benchmark. Each factor's answers compare as they are.", "Unlock weightings");
     if (!go) return;
     doc.weightsLocked = false;
-    if (!doc.templateWeights) doc.templateWeights = VA.weightSnapshot(doc);
+    doc.templateWeights = VA.weightSnapshot(doc);
     markDirty();
     renderScorecardKeepScroll();
     toast("Weightings unlocked.", 4000);
@@ -3415,6 +3451,8 @@ function refreshRow(i) {
 // the numbers that change with any answer: priorities, benchmark gaps, dimension totals, the summary strip
 function updateNumbers() {
   const ws = A.ws, c = wsCalc(), doc = ws.doc;
+  // beside a benchmark, on the template's weightings if this assessment's differ
+  const fc = ws.bench ? fairCalc() : null;
   const top = topPriorities(), max = priorityMax();
   $$("#sc .f-row[data-i]").forEach((row) => {
     const i = Number(row.dataset.i), x = c.rows[i];
@@ -3437,12 +3475,12 @@ function updateNumbers() {
     const el = $(`[data-stats="${di}"]`);
     if (!el) return;
     const bench = ws.bench && ws.bench.dims && ws.bench.dims[d.name] ? ws.bench.dims[d.name].score : d.bench ? d.bench.score : null;
-    el.innerHTML = `<span>Score <b>${f1(d.score)}</b><span class="mini"><span style="width:${Math.max(0, Math.min(100, d.score))}%"></span>${isNum(bench) ? `<em style="left:${Math.max(0, Math.min(100, bench))}%" title="Benchmark ${f1(bench)}"></em>` : ""}</span></span>
+    const fd = fc && fc.dims[di] && Math.abs(fc.dims[di].score - d.score) >= 0.05 ? fc.dims[di] : null, shown = fd ? fd.score : d.score;
+    el.innerHTML = `<span>Score <b>${f1(d.score)}</b>${fd ? ` <span class="fair" title="Beside the benchmark, on the template's weightings">(${f1(fd.score)} on the template's)</span>` : ""}<span class="mini" ${fd ? `title="On the template's weightings, beside the benchmark"` : ""}><span style="width:${Math.max(0, Math.min(100, shown))}%"></span>${isNum(bench) ? `<em style="left:${Math.max(0, Math.min(100, bench))}%" title="Benchmark ${f1(bench)}"></em>` : ""}</span></span>
       <span>Confidence <b>${f0(d.conf)}</b></span><span>Opportunity <b>${f0(d.opp)}</b></span>
       <span>${d.answered}/${d.factors} answered</span><span title="This dimension's share of the overall weighting">${pct(d.weightShare)} of total</span>`;
   });
   const bt = ws.bench && ws.bench.totals;
-  const fc = bt ? fairCalc() : null;
   const strip = $("#strip");
   if (strip) {
     strip.innerHTML = `<div><span class="lbl">Overall score</span><strong>${f1(c.totals.score)}</strong>${bt && isNum(bt.score) ? `<span class="bm">${fc ? `${f1(fc.totals.score)} on the template's weightings · ` : ""}benchmark ${f1(bt.score)}</span>` : ""}</div>
@@ -3814,8 +3852,10 @@ function reportWorkbook() {
     [H("Totals"), H("Score"), H("Benchmark")],
     ["Overall performance", n1(c.totals.score), fc ? "" : n1(b && b.totals && b.totals.score)],
     ...(fc ? [["Overall performance on the template's weightings", n1(fc.totals.score), n1(b && b.totals && b.totals.score)]] : []),
-    ["Confidence", n1(c.totals.conf), n1(b && b.totals && b.totals.conf)],
-    ["Opportunity", n1(c.totals.opp), n1(b && b.totals && b.totals.opp)],
+    ["Confidence", n1(c.totals.conf), fc ? "" : n1(b && b.totals && b.totals.conf)],
+    ...(fc ? [["Confidence on the template's weightings", n1(fc.totals.conf), n1(b && b.totals && b.totals.conf)]] : []),
+    ["Opportunity", n1(c.totals.opp), fc ? "" : n1(b && b.totals && b.totals.opp)],
+    ...(fc ? [["Opportunity on the template's weightings", n1(fc.totals.opp), n1(b && b.totals && b.totals.opp)]] : []),
     ["Weighted factors answered", { v: c.answered, s: "n0" }, ""],
     ["Weighted factors", { v: c.factors, s: "n0" }, ""],
     ["Score of answered factors only", n1(c.answeredScore), ""],
