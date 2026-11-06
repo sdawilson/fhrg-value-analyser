@@ -300,11 +300,13 @@ await test("the template names are clean", () => {
   assert.deepEqual(names.filter((n) => / \? /.test(n)), []);
 });
 await test("the sign-in card offers the Northbridge demonstration beside Sign in, as Clarion's does", async () => {
-  w.document.querySelector("dialog.ask[open] button[value=ok]")?.click();
+  // an earlier test may leave unsaved changes: say yes to leaving them
+  const leave = () => w.document.querySelector("dialog.ask[open] button[value=ok]")?.click();
+  leave();
   w.location.hash = "/";
-  await wait(() => w.document.querySelector("#signout") && /Northbridge Value for Money 2025-26/.test(w.document.querySelector("#main").textContent), "the assessments");
+  await wait(() => (leave(), w.document.querySelector("#signout") && /Northbridge Value for Money 2025-26/.test(w.document.querySelector("#main").textContent)), "the assessments");
   w.document.querySelector("#signout").click();
-  await wait(() => w.document.querySelector("#signin"), "the sign-in card");
+  await wait(() => (leave(), w.document.querySelector("#signin")), "the sign-in card");
   const card = w.document.querySelector(".auth-sign .auth-card");
   assert.ok(card, "the framed card");
   assert.ok(w.document.body.classList.contains("auth-page"), "the site's header and footer step aside");
