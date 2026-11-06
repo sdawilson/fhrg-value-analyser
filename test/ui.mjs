@@ -184,6 +184,72 @@ await test("each priority has a bar, as a share of the largest", () => {
   assert.equal(share(cells.find((c) => num(c) === max)), 1);
   for (const c of cells) assert.ok(Math.abs(share(c) - num(c) / max) < 0.02, `${c.textContent} ${share(c)}`);
 });
+// ----- row totals
+const totalsBox = () => w.document.querySelector("#sc-totals");
+const cellNum = (el) => { const v = el.textContent.trim(); return v === "–" ? null : Number(v); };
+await test("row totals are off until asked for, and the choice is remembered", () => {
+  assert.equal(totalsBox().checked, false);
+  assert.ok(!sc().classList.contains("show-totals"));
+  totalsBox().checked = true; totalsBox().dispatchEvent(new w.Event("change", { bubbles: true }));
+  assert.ok(sc().classList.contains("show-totals"));
+  assert.equal(w.localStorage.getItem("va.rowTotals"), "1");
+});
+await test("each row's totals are its weighted share, and add up to the dimension's and the overall score", async () => {
+  const doc = VA.parse(JSON.parse(await w.eval(`(async () => JSON.stringify(await Demo.call("/api/assessments/open", { id: ${list.find((a) => a.type === "Best Practice Carbon").id} })))()`)).va2, "a.va2").doc;
+  const c = VA.calculate(doc);
+  let overall = 0;
+  c.dims.forEach((d, di) => {
+    const rows = doc.rows.map((r, i) => ({ r, i })).filter((o) => o.r.dimension === d.name && c.rows[o.i].scored);
+    const sumW = rows.reduce((a, o) => a + o.r.weight, 0), allW = doc.rows.reduce((a, r, i) => a + (c.rows[i].heading ? 0 : r.weight || 0), 0);
+    let dimSum = 0, allSum = 0;
+    for (const { r, i } of rows) {
+      const row = sc().querySelector(`.f-row[data-i="${i}"]`), dimCell = cellNum(row.querySelector("[data-tdim] .tv")), allCell = cellNum(row.querySelector("[data-tall] .tv"));
+      const s = c.rows[i].score;
+      if (s === null) { assert.equal(dimCell, null); continue; }
+      assert.ok(Math.abs(dimCell - (r.weight / sumW) * s) < 0.051, `${r.id} dimension total ${dimCell}`);
+      assert.ok(Math.abs(allCell - (r.weight / allW) * s) < 0.0051, `${r.id} assessment total ${allCell}`);
+      dimSum += dimCell; allSum += allCell;
+    }
+    const tr = sc().querySelector(`[data-total="${di}"]`);
+    assert.equal(tr.querySelector('[data-tsum="dim"]').textContent, d.score.toFixed(1), d.name);
+    assert.ok(Math.abs(dimSum - d.score) < 0.05 * rows.length + 0.01, `${d.name}: rows add up to the dimension's score`);
+    overall += Number(tr.querySelector('[data-tsum="all"]').textContent);
+    assert.ok(Math.abs(allSum - Number(tr.querySelector('[data-tsum="all"]').textContent)) < 0.005 * rows.length + 0.01);
+  });
+  assert.ok(Math.abs(overall - c.totals.score) < 0.005 * c.dims.length + 0.01, "the dimensions' assessment totals add up to the overall score");
+  assert.ok(sc().querySelector("[data-tdim] .lbl-mobile"), "labelled on a phone");
+});
+await test("row totals follow a changed answer, and hide again when unticked", () => {
+  const s = rowsWith("score").find((x) => valueOf(x) !== null && x.closest(".f-row").querySelector("[data-tdim]")), row = s.closest(".f-row");
+  const before = row.querySelector("[data-tdim] .tv").textContent;
+  const now = valueOf(s);
+  s.value = [...s.options].find((o) => { const m = (o.value + o.textContent).match(/\[(\d+)\]/); return m && Number(m[1]) !== now; }).value;
+  s.dispatchEvent(new w.Event("change", { bubbles: true }));
+  assert.notEqual(row.querySelector("[data-tdim] .tv").textContent, before);
+  totalsBox().checked = false; totalsBox().dispatchEvent(new w.Event("change", { bubbles: true }));
+  assert.ok(!sc().classList.contains("show-totals"));
+  assert.equal(w.localStorage.getItem("va.rowTotals"), "0");
+});
+await test("row totals sit at the end of the row, after Notes", () => {
+  const css = html.replace(/\s+/g, " ");
+  assert.match(css, /\.f-head \.c-t, \.f-row \.c-t \{ display: none; order: 1; \}/);
+  for (const sel of ["\\.sc\\.show-totals \\.f-head, \\.sc\\.show-totals \\.f-row", "\\.sc\\.show-bench\\.show-totals \\.f-head, \\.sc\\.show-bench\\.show-totals \\.f-row"])
+    assert.match(css, new RegExp(`${sel} \\{ grid-template-columns: [^}]* 4rem 5\\.2rem 4\\.6rem 4\\.6rem; \\}`), "priority, notes, then the two totals");
+  // only where there's room for them: narrower, each row stacks as on a phone
+  assert.match(css, /@media \(min-width: 1280px\) \{ \.sc\.show-totals \.f-head, \.sc\.show-totals \.f-row \{ grid-template-columns/);
+  assert.match(css, /@media \(max-width: 1279px\) \{ \.sc\.show-totals \.f-head \{ display: none; \} \.sc\.show-totals \.f-row \{ grid-template-columns: 3rem minmax\(0, 1fr\) auto; grid-template-areas/);
+});
+await test("scores sit in the middle of their cells", () => {
+  const css = html.replace(/\s+/g, " ");
+  assert.match(css, /\.f-row select \{ text-align: center; text-align-last: center; \}/);
+  assert.match(css, /\.f-row \.pri \{[^}]*text-align: center;/);
+  assert.match(css, /\.pri-bar \{[^}]*align-items: center;/);
+  assert.match(css, /\.f-head \.mid, \.f-row \.c-t, \.f-row \.c-b \{ text-align: center; \}/);
+  assert.match(css, /\.prio-table td\.num, \.prio-table th\.num \{ text-align: center; vertical-align: middle; \}/);
+  assert.match(css, /\.heat td\.v \{[^}]*vertical-align: middle;/);
+  const head = [...sc().querySelectorAll(".f-head span")].filter((s) => /Weighting|Performance|Confidence|Opportunity|Priority/.test(s.textContent));
+  assert.ok(head.length >= 5 && head.every((s) => s.classList.contains("mid")));
+});
 // ----- locked weightings
 const lockBox = () => w.document.querySelector("#sc-lock");
 const weightSel = () => rowsWith("weight");
@@ -193,8 +259,13 @@ const saveAndRead = async () => {
   await wait(() => /Saved/.test(w.document.querySelector("#ws-status")?.textContent || ""), "the save");
   return JSON.parse(await w.eval(`(async () => JSON.stringify(await Demo.call("/api/assessments/open", { id: ${carbonId()} })))()`)).va2;
 };
+const readSaved = async () => JSON.parse(await w.eval(`(async () => JSON.stringify(await Demo.call("/api/assessments/open", { id: ${carbonId()} })))()`)).va2;
+let lockedDoc = null;
+// the same answers on the template's weightings, row by row, worked out without the page's own helpers
+const onTemplate = (doc) => { const d = VA.clone(doc); d.rows.forEach((r, i) => (r.weight = lockedDoc.rows[i].weight)); d.weighting = lockedDoc.weighting; d.weightsLocked = true; d.templateWeights = null; return d; };
 const untick = async () => { lockBox().checked = false; lockBox().dispatchEvent(new w.Event("change", { bubbles: true })); await wait(() => w.document.querySelector("dialog.ask"), "the warning"); return w.document.querySelector("dialog.ask"); };
 await test("weightings are locked by default, and a locked weighting can't be changed", async () => {
+  lockedDoc = VA.parse(await readSaved(), "a.va2").doc;
   assert.equal(lockBox().checked, true);
   assert.ok(weightSel().length && weightSel().every((s) => s.disabled));
   const s = weightSel().find((x) => x.value !== "" && x.value !== "25"), i = s.closest(".f-row").dataset.i, before = s.value;
@@ -216,10 +287,16 @@ await test("once unlocked, the weightings can be changed and the file records it
   await wait(() => w.document.querySelector("#sc-lock-warn"), "the unlocked note");
   assert.equal(lockBox().checked, false);
   assert.ok(weightSel().every((s) => !s.disabled));
-  assert.match(w.document.querySelector("#sc-lock-warn").textContent, /benchmarking/);
+  assert.match(w.document.querySelector("#sc-lock-warn").textContent, /template's weightings/);
   const text = await saveAndRead();
   assert.match(text, /Weightings Locked:= No/);
-  assert.equal(VA.parse(text, "a.va2").doc.weightsLocked, false);
+  assert.match(text, /Template Weighting Method:= Simple\r\n/);
+  const back = VA.parse(text, "a.va2").doc;
+  assert.equal(back.weightsLocked, false);
+  // a copy of the template's weightings, row by row
+  for (const r of lockedDoc.rows) assert.equal(back.templateWeights.w[VA.weightKey(r)], r.weight ?? null, `${r.id} ${r.factor}`);
+  assert.equal(VA.weightsDiffer(back), false, "unchanged so far");
+  assert.equal(VA.summarise(back).template, undefined, "nothing extra to compare while they're the same");
 });
 await test("the shading follows a changed answer straight away", async () => {
   const s = rowsWith("score").find((x) => x.options.length > 2), row = s.closest(".f-row");
@@ -233,11 +310,116 @@ await test("the shading follows a changed answer straight away", async () => {
   wsel.value = "25"; wsel.dispatchEvent(new w.Event("change", { bubbles: true }));
   await wait(() => sc().querySelector(`.f-row[data-i="${i}"] select[data-k="weight"]`)?.classList.contains("n25"), "the weighting's shade");
 });
-await test("locking again holds the weightings, and a locked file doesn't need to say so", async () => {
-  lockBox().checked = true; lockBox().dispatchEvent(new w.Event("change", { bubbles: true }));
+await test("changed weightings keep the template's in the file, and benchmarks count the template's", async () => {
+  const text = await saveAndRead();
+  const doc = VA.parse(text, "a.va2").doc, mine = VA.calculate(doc), theirs = VA.calculate(onTemplate(doc));
+  assert.ok(VA.weightsDiffer(doc));
+  assert.notEqual(mine.totals.score.toFixed(3), theirs.totals.score.toFixed(3), "the change moves the score");
+  const s = VA.summarise(doc);
+  assert.equal(s.totals.score.toFixed(2), mine.totals.score.toFixed(2), "the list shows the authority's own score");
+  assert.equal(s.template.totals.score.toFixed(2), theirs.totals.score.toFixed(2), "benchmarks get the score on the template's weightings");
+  s.template.dims.forEach((d, k) => assert.equal(d.score.toFixed(2), theirs.dims[k].score.toFixed(2), d.name));
+  // and the page's own averages use them
+  const peer = VA.summarise(onTemplate(doc));
+  assert.equal(VA.aggregate([s, peer, peer]).totals.score.toFixed(2), theirs.totals.score.toFixed(2));
+});
+await test("beside a benchmark, the scores are put back on the template's weightings", async () => {
+  const id = carbonId();
+  w.location.hash = `/a/${id}/benchmark`;
+  await wait(() => w.document.querySelector('[data-src="fhrg"]'), "the benchmark tab");
+  w.document.querySelector('[data-src="fhrg"]').click();
+  await wait(() => w.document.querySelector("#bm-set"), "the FHRG benchmarks");
+  const sel = w.document.querySelector("#bm-set");
+  sel.value = [...sel.options].find((o) => /Carbon/.test(o.textContent)).value;
+  sel.dispatchEvent(new w.Event("change", { bubbles: true }));
+  await wait(() => /template's weightings/.test(w.document.querySelector("#bm-result")?.textContent || ""), "the comparison");
+  const theirs = VA.calculate(onTemplate(VA.parse(await readSaved(), "a.va2").doc)).totals.score.toFixed(1);
+  const lead = w.document.querySelector("#bm-result .kpi.lead");
+  assert.match(lead.textContent, /on the template's weightings/);
+  assert.equal(lead.querySelector("strong").textContent, theirs);
+  assert.match(w.document.querySelector("#bm-result .notice").textContent, new RegExp(`overall ${theirs.replace(".", "\\.")}`));
+  w.location.hash = `/a/${id}/scorecard`;
+  await wait(() => /template's weightings/.test(w.document.querySelector("#strip")?.textContent || ""), "the summary strip");
+  assert.ok([...w.document.querySelectorAll("[data-stats]")].some((s) => /on the template's/.test(s.textContent)), "a dimension's heading compares on the template's weightings too");
+  w.location.hash = `/a/${id}/report`;
+  await wait(() => w.document.querySelector(".kpis"), "the report");
+  assert.match(w.document.querySelector("#ws-body").textContent, new RegExp(`${theirs.replace(".", "\\.")} on the template's weightings`));
+  w.location.hash = `/a/${id}/scorecard`;
+  await wait(() => lockBox(), "the scorecard");
+});
+// ----- the copy of the template's weightings, in awkward cases
+// moving between assessments may ask about unsaved changes from an earlier test: leave them
+const leaveUnsaved = () => { const d = w.document.querySelector("dialog.ask[open]"); if (d && /Leave without saving/.test(d.textContent)) d.querySelector("button[value=ok]").click(); };
+const unlocked = (doc) => { const d = VA.clone(doc); d.weightsLocked = false; d.templateWeights = VA.weightSnapshot(d); return d; };
+const reread = (d) => VA.parse(VA.write(d, {}), "a.va2").doc;
+await test("a factor zeroed because it doesn't apply, and left unanswered, stays out of comparisons", () => {
+  const d = unlocked(lockedDoc), c = VA.calculate(d);
+  const i = d.rows.findIndex((r, k) => c.rows[k].scored && c.rows[k].answered);
+  d.rows[i].weight = 0; d.rows[i].score = ""; d.rows[i].scoreOv = null;
+  assert.equal(VA.weightsDiffer(d), true, "it does differ from the template's");
+  assert.equal(VA.weightsDiffer(d, true), false, "but not for comparing");
+  assert.equal(VA.summarise(d).template, undefined);
+  const j = d.rows.findIndex((r, k) => k > i && c.rows[k].scored && c.rows[k].answered);
+  d.rows[j].weight = d.rows[j].weight === 25 ? 100 : 25;
+  const fair = VA.onTemplateWeights(d);
+  assert.equal(fair.rows[i].weight, 0, "the factor that doesn't apply stays out");
+  assert.equal(fair.rows[j].weight, lockedDoc.rows[j].weight, "the changed one goes back");
+  assert.equal(VA.restoreTemplateWeights(VA.clone(d)).rows[i].weight, lockedDoc.rows[i].weight, "locking again puts every weighting back");
+});
+await test("a dimension that repeats a factor's name keeps each one's weighting", () => {
+  const d0 = VA.clone(lockedDoc);
+  d0.rows.forEach((r) => (r.id = null));
+  const [a, b] = d0.rows.map((r, k) => k).filter((k) => d0.rows[k].range && d0.rows[k].dimension === d0.rows[d0.rows.findIndex((x) => x.range)].dimension).slice(0, 2);
+  d0.rows[b].factor = d0.rows[a].factor; d0.rows[a].weight = 100; d0.rows[b].weight = 50;
+  const back = reread(unlocked(d0));
+  assert.equal(new Set(VA.weightKeys(back.rows)).size, back.rows.length);
+  assert.equal(VA.weightsDiffer(back), false, "nothing changed");
+  back.rows[b].weight = 75;
+  assert.equal(VA.weightsDiffer(back), true);
+  const r = VA.restoreTemplateWeights(back);
+  assert.equal(r.rows[a].weight, 100); assert.equal(r.rows[b].weight, 50);
+});
+await test("names with odd characters read back the same, and a locked file drops any copy", () => {
+  const d0 = VA.clone(lockedDoc);
+  const k = d0.rows.findIndex((r) => r.range);
+  d0.rows.filter((r) => r.dimension === d0.rows[k].dimension).forEach((r) => (r.dimension = "Corp|e|orate"));
+  d0.rows[k].factor = "Line one\nline two |e| and |c| more ";
+  const back = reread(unlocked(d0));
+  assert.equal(VA.weightsDiffer(back), false);
+  back.rows[k].weight = back.rows[k].weight === 25 ? 100 : 25;
+  assert.equal(VA.weightsDiffer(back), true);
+  const locked = VA.write(unlocked(lockedDoc), {}).replace("   Weightings Locked:= No\r\n", "");
+  assert.match(locked, /Template Weighting:= /);
+  assert.equal(VA.parse(locked, "a.va2").doc.templateWeights, null);
+});
+await test("an assessment unlocked without a copy takes one from its template, or says it has none", async () => {
+  const save = async (name, templateId) => {
+    const text = (await readSaved()).replace(/Begin Template Settings\r\n[\s\S]*?End Section\r\n/, "").replace(/Profile Name:= [^\r\n]*/, `Profile Name:= ${name}`) + "Begin Template Settings\r\n   Weightings Locked:= No\r\nEnd Section\r\n";
+    return JSON.parse(await w.eval(`(async () => JSON.stringify(await Demo.call("/api/assessments/save", ${JSON.stringify({ name, va2: text, templateId })})))()`)).id;
+  };
+  const tid = JSON.parse(await w.eval(`(async () => JSON.stringify((await Demo.call("/api/templates/list")).templates.find((t) => t.name === "Best Practice Carbon").id))()`));
+  for (const [name, templateId, words] of [["Unlocked from its template", tid, /put back on the template's weightings/], ["Unlocked from nowhere", null, /no copy of the template's weightings/]]) {
+    const id = await save(name, templateId);
+    w.location.hash = `/a/${id}/scorecard`;
+    await wait(() => (leaveUnsaved(), w.document.querySelector("#sc-lock-warn") && w.document.querySelector("#ws-title")?.textContent.includes(name)), name);
+    assert.match(w.document.querySelector("#sc-lock-warn").textContent, words, name);
+  }
+});
+await test("locking again asks, then puts the template's weightings back", async () => {
+  w.location.hash = `/a/${carbonId()}/scorecard`;
+  await wait(() => (leaveUnsaved(), lockBox() && /Carbon Best Practice 2025-26/.test(w.document.querySelector("#ws-title")?.textContent || "") && !lockBox().checked), "the unlocked assessment");
+  const relock = async () => { lockBox().checked = true; lockBox().dispatchEvent(new w.Event("change", { bubbles: true })); await wait(() => w.document.querySelector("dialog.ask"), "the question"); return w.document.querySelector("dialog.ask"); };
+  let d = await relock();
+  assert.match(d.textContent, /puts the template's weightings back/);
+  d.querySelector("[data-cancel]").click();
+  await wait(() => !w.document.querySelector("dialog.ask"), "the question to close");
+  assert.equal(lockBox().checked, false, "still unlocked");
+  d = await relock();
+  d.querySelector("button[value=ok]").click();
   await wait(() => weightSel().length && weightSel().every((s) => s.disabled), "the weightings to lock");
-  assert.ok(!w.document.querySelector("dialog.ask"), "no warning to lock");
-  assert.doesNotMatch(await saveAndRead(), /Weightings Locked/);
+  const text = await saveAndRead(), doc = VA.parse(text, "a.va2").doc;
+  assert.doesNotMatch(text, /Weightings Locked|Template Weighting/);
+  doc.rows.forEach((r, i) => assert.equal(r.weight, lockedDoc.rows[i].weight, `${r.id} ${r.factor}`));
 });
 await test("the weighting method is locked with the weightings", async () => {
   const id = list.find((a) => a.type === "Best Practice Carbon").id;

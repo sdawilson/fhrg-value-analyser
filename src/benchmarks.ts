@@ -37,6 +37,9 @@ export function aggregate(summaries: any[], statistic: string, minimum: number):
     if (!enough(sc)) continue;
     factors[k] = { score: r3(pick(sc)), conf: r3(pick(rows.map((x: any) => x[1]))), opp: r3(pick(rows.map((x: any) => x[2]))), n: sc.filter(isN).length, ...middle(sc) };
   }
+  // dimension and overall scores on the template's weightings, for an assessment whose own differ from them,
+  // so every authority is compared like for like (factors are answers, the same whatever the weightings)
+  summaries = summaries.map((s) => (s?.template ? { ...s, totals: s.template.totals, dims: s.template.dims } : s));
   const dimNames = [...new Set(summaries.flatMap((s) => (s.dims || []).map((d: any) => d.name)))];
   const dims = dimNames.flatMap((name) => {
     const ds = summaries.map((s) => (s.dims || []).find((d: any) => d.name === name)).filter(Boolean);

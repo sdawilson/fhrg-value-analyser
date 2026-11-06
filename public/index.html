@@ -452,6 +452,7 @@ body:has(.sum-strip) .toasts { bottom: 5.5rem; }
 .dim-head .toggle { background: none; border: 0; padding: 0.2rem; cursor: pointer; color: var(--slate); font-size: 1rem; line-height: 1; width: 1.6rem; }
 .dim-head .stats { display: flex; flex-wrap: wrap; gap: 0.3rem 1.2rem; font-size: 0.88rem; color: var(--ink-soft); align-items: center; justify-content: end; }
 .dim-head .stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.dim-head .stats .fair { font-size: 0.82rem; }
 .dim-head .mini { display: inline-block; width: 5rem; height: 0.45rem; background: var(--haze); border-radius: 4px; overflow: hidden; vertical-align: middle; margin-left: 0.35rem; position: relative; }
 .dim-head .mini span { display: block; height: 100%; background: var(--c-score); }
 .dim-head .mini em { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--ink); }
@@ -461,8 +462,32 @@ body:has(.sum-strip) .toasts { bottom: 5.5rem; }
 .f-head { font-size: 0.8rem; color: var(--ink-soft); font-weight: 700; border-bottom: 1px solid var(--haze); padding-top: 0.5rem; padding-bottom: 0.5rem; }
 .f-head .c-b, .f-row .c-b { display: none; }
 .sc.show-bench .f-head .c-b, .sc.show-bench .f-row .c-b { display: block; }
+/* row totals, as in the Excel tool: each factor's weighted share of its dimension's score and of the overall score */
+/* they sit at the end of the row, after Notes, where there's room; narrower, each row stacks as on a phone */
+@media (min-width: 1280px) {
+  .sc.show-totals .f-head, .sc.show-totals .f-row { grid-template-columns: 3.2rem minmax(11rem, 1fr) 5.4rem minmax(9rem, 12.5rem) minmax(7.5rem, 10rem) minmax(7.5rem, 10rem) 4rem 5.2rem 4.6rem 4.6rem; }
+  .sc.show-bench.show-totals .f-head, .sc.show-bench.show-totals .f-row { grid-template-columns: 3.2rem minmax(11rem, 1fr) 5.4rem minmax(9rem, 12.5rem) 4.2rem minmax(7.5rem, 10rem) minmax(7.5rem, 10rem) 4rem 5.2rem 4.6rem 4.6rem; }
+}
+@media (max-width: 1279px) {
+  .sc.show-totals .f-head { display: none; }
+  .sc.show-totals .f-row { grid-template-columns: 3rem minmax(0, 1fr) auto; grid-template-areas: "id name more" "ctl ctl ctl"; padding: 0.7rem 0.8rem; }
+  .sc.show-totals .f-row .c-id { grid-area: id; } .sc.show-totals .f-row .c-name { grid-area: name; } .sc.show-totals .f-row .more { grid-area: more; }
+  .sc.show-totals .f-row .ctl { grid-area: ctl; display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.5rem; }
+  .sc.show-totals .f-row .pri { align-items: stretch; text-align: left; }
+  .sc.show-totals .f-row .c-t { text-align: left; } .sc.show-totals .f-row select { text-align: left; text-align-last: auto; }
+  .sc.show-totals .f-row.f-total .ctl > .sp, .sc.show-totals .f-row.heading .ctl:empty { display: none; }
+  .sc.show-totals .lbl-mobile { display: block; }
+}
+.f-head .c-t, .f-row .c-t { display: none; order: 1; }
+.sc.show-totals .f-head .c-t, .sc.show-totals .f-row .c-t { display: block; }
+.f-row .c-t { font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.f-row.f-total { display: none; background: var(--paper); font-weight: 700; border-top: 2px solid var(--haze); }
+.sc.show-totals .f-row.f-total { display: grid; }
+.f-row.f-total .nm { color: var(--navy-deep); }
+/* scores sit in the middle of their cells */
+.f-head .mid, .f-row .c-t, .f-row .c-b { text-align: center; }
 .f-row { border-bottom: 1px solid var(--haze); }
-.f-row:last-child { border-bottom: 0; }
+.f-row:last-child, .sc:not(.show-totals) .dim-body > :nth-last-child(2) { border-bottom: 0; }
 .f-row:hover { background: #fafbfc; }
 .f-row.open { background: #f3f7fb; }
 .f-row .c-id { color: var(--ink-soft); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
@@ -476,10 +501,10 @@ dl.guide dt { font-weight: 700; } dl.guide dd { margin: 0.15rem 0 0; }
 .f-row.heading .nm { font-weight: 700; color: var(--navy-deep); }
 .f-row.heading.t0 { padding-top: 0.7rem; }
 .f-row select { font-size: 0.88rem; padding: 0.35rem 0.4rem; border-width: 1px; border-radius: 6px; width: 100%; }
-.f-row select.w { text-align: right; }
-.f-row .pri { font-variant-numeric: tabular-nums; font-size: 0.9rem; text-align: right; }
+.f-row select { text-align: center; text-align-last: center; }
+.f-row .pri { font-variant-numeric: tabular-nums; font-size: 0.9rem; text-align: center; }
 .f-row .pri.hi { font-weight: 800; color: var(--bad); }
-.f-row .c-b { font-variant-numeric: tabular-nums; font-size: 0.88rem; text-align: right; color: var(--ink-soft); }
+.f-row .c-b { font-variant-numeric: tabular-nums; font-size: 0.88rem; color: var(--ink-soft); }
 .f-row .c-b .gap { display: block; font-size: 0.75rem; font-weight: 700; }
 .f-row .c-b .gap.up { color: var(--ok); } .f-row .c-b .gap.down { color: var(--bad); }
 .f-row .more { justify-self: end; }
@@ -488,7 +513,7 @@ select.t0 { background-color: var(--t0); } select.t25 { background-color: var(--
 select.t75 { background-color: var(--t75); } select.t100 { background-color: var(--t100); }
 select.n25 { background-color: var(--n25); } select.n50 { background-color: var(--n50); } select.n75 { background-color: var(--n75); } select.n100 { background-color: var(--n100); }
 /* a priority: its number, with a thin bar beneath as a share of the largest */
-.pri-bar { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.pri-bar { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .pbar { display: block; width: 100%; height: 5px; border-radius: 3px; background: var(--bar-track); overflow: hidden; }
 .pbar i { display: block; height: 100%; width: calc(var(--p, 0) * 100%); background: var(--bar); border-radius: 3px; }
 select.pending { border-color: #c98f16; border-style: dashed; }
@@ -497,6 +522,7 @@ select.pending { border-color: #c98f16; border-style: dashed; }
 .f-row select.w:disabled:not([class*=" n"]) { background-color: transparent; }
 .lock-box { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.92rem; }
 .lock-box .check { margin: 0; }
+.lock-box .totals-box { order: 9; margin-left: auto; }
 .lock-warn { color: var(--warn); font-weight: 600; font-size: 0.88rem; }
 .lbl-mobile { display: none; font-size: 0.75rem; color: var(--ink-soft); font-weight: 600; }
 @media (max-width: 1100px) {
@@ -505,6 +531,8 @@ select.pending { border-color: #c98f16; border-style: dashed; }
   .f-row .c-id { grid-area: id; } .f-row .c-name { grid-area: name; } .f-row .more { grid-area: more; }
   .f-row .ctl { grid-area: ctl; display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.5rem; }
   .f-row .pri { align-items: stretch; text-align: left; } .f-row .pri .lbl-mobile { display: block; }
+  .f-row .c-t { text-align: left; } .f-row select { text-align: left; text-align-last: auto; }
+  .f-row.f-total .ctl > .sp { display: none; }
   .f-row.heading .ctl:empty { display: none; }
   .lbl-mobile { display: block; }
   .dim-head { grid-template-columns: auto minmax(0, 1fr); }
@@ -569,9 +597,10 @@ select.pending { border-color: #c98f16; border-style: dashed; }
 .band-label { font-size: 0.82rem; font-weight: 700; padding: 0.1rem 0.5rem; border-radius: 4px; background: rgba(255, 255, 255, 0.18); }
 .prio-table td.nm { max-width: 26rem; }
 .prio-table .why { display: block; font-size: 0.82rem; color: var(--ink-soft); }
-.prio-table .prio-v { min-width: 3.5rem; margin-left: auto; }
+.prio-table .prio-v { min-width: 3.5rem; margin: 0 auto; }
+.prio-table td.num, .prio-table th.num { text-align: center; vertical-align: middle; }
 .rank { display: inline-grid; place-items: center; width: 1.6rem; height: 1.6rem; border-radius: 50%; background: var(--navy); color: var(--white); font-size: 0.8rem; font-weight: 800; }
-.heat td.v { text-align: center; font-variant-numeric: tabular-nums; font-weight: 700; }
+.heat td.v { text-align: center; vertical-align: middle; font-variant-numeric: tabular-nums; font-weight: 700; }
 .heat th.opt { text-align: center; white-space: normal; min-width: 7rem; }
 .heat td.best { box-shadow: inset 0 0 0 2px var(--navy); }
 .heat tr.total td, .heat tr.total th { border-top: 2px solid var(--ink); background: var(--white); }
@@ -963,6 +992,20 @@ const VA = (() => {
         case "settings": {
           const lock = trimmed.match(/^Weightings Locked:= ?(.*)$/);
           if (lock) { doc.weightsLocked = !/^(no|false|0)$/i.test(lock[1].trim()); break; }
+          // Template Weighting Method:= Simple, then Template Weighting:= <ID>|e|<dimension>|e|<factor>|e|<weighting>
+          const tw = trimmed.match(/^Template Weighting( Method)?:= ?(.*)$/);
+          if (tw) {
+            const tws = (doc.templateWeights ??= { method: "simple", w: {}, seen: {} });
+            if (tw[1]) { tws.method = /^tree$/i.test(tw[2].trim()) ? "tree" : "simple"; break; }
+            const parts = tw[2].split("|e|");
+            if (parts.length < 4) break;
+            const w = parts.pop().trim(), id = parts.shift().trim(), dimension = parts.shift().replace(/<lf>/g, "\n");
+            const idv = id !== "" && Number.isFinite(Number(id)) ? Number(id) : id;
+            const base = weightKey({ id: idv, dimension, factor: parts.join("|e|").replace(/<lf>/g, "\n") }), n = tws.seen[base] || 0;
+            tws.seen[base] = n + 1;
+            tws.w[n ? `${base}#${n}` : base] = w === "" || !Number.isFinite(Number(w)) ? null : Number(w);
+            break;
+          }
           const m = trimmed.match(/^Template (Levels|Description):= ?(.*)$/);
           if (m && m[1] === "Levels") doc.levels = m[2].trim();
           else if (m) doc.description = m[2].replace(/<lf>/g, "\n").trim();
@@ -983,6 +1026,9 @@ const VA = (() => {
     }
     delete doc._tableFound;
     if (!doc.rows.length) warnings.push("The file has no factors.");
+    // a copy of the template's weightings only means something while they're unlocked
+    if (doc.templateWeights) delete doc.templateWeights.seen;
+    if (doc.weightsLocked !== false) doc.templateWeights = null;
     // the Excel tool's two stamps for what kind of file this is
     if (doc.profile.Profile_Type && !doc.kind) doc.kind = "assessment";
     // the workbook switches to tree weighting row by row, wherever Tree_Weighting has a value
@@ -1073,6 +1119,7 @@ const VA = (() => {
       levels: "",
       description: "",
       weightsLocked: true,
+      templateWeights: null, // { method, w: {weightKey: weighting} }: the template's, kept while the weightings are unlocked
       summaryLines: [],
       scales: {},
       rows: [],
@@ -1098,6 +1145,13 @@ const VA = (() => {
   function factorKey(r) {
     return `${isNum(r.id) ? r.id : ""}|${norm(r.factor)}`;
   }
+  const weightKey = (r) => `${norm(r.dimension)}|${factorKey(r)}`;
+  // each row's key, in order, with a count added where a dimension repeats one ("…#1"), so no two rows share a key
+  function weightKeys(rows) {
+    const seen = {};
+    return rows.map((r) => { const k = weightKey(r), n = seen[k] || 0; seen[k] = n + 1; return n ? `${k}#${n}` : k; });
+  }
+  const hasOwn = (o, k) => !!o && Object.prototype.hasOwnProperty.call(o, k);
   // the answers a row offers: the template's own scale, a built-in one, or the default
   function scaleFor(doc, range) {
     const name = String(range || "").trim();
@@ -1364,6 +1418,19 @@ const VA = (() => {
     if (doc.kind === "template" && doc.levels) settings.push(`   Template Levels:= ${doc.levels}`);
     if (doc.kind === "template" && doc.description) settings.push(`   Template Description:= ${flat(doc.description)}`);
     if (doc.weightsLocked === false) settings.push("   Weightings Locked:= No");
+    // the template's weightings, kept while they're unlocked so scores can be put back on them to compare like for like
+    if (doc.weightsLocked === false && doc.kind !== "template" && doc.templateWeights) {
+      const tw = doc.templateWeights;
+      settings.push(`   Template Weighting Method:= ${tw.method === "tree" ? "Tree" : "Simple"}`);
+      const keys = weightKeys(doc.rows);
+      doc.rows.forEach((r, i) => {
+        const k = keys[i];
+        if (!hasOwn(tw.w, k)) return;
+        // written as the table writes them, so they read back the same
+        const text = (x) => flat(cellText(x));
+        settings.push(`   Template Weighting:= ${text(r.id ?? "")}|e|${text(r.dimension)}|e|${text(r.factor)}|e|${isNum(tw.w[k]) ? vbaNum(tw.w[k]) : ""}`);
+      });
+    }
     if (settings.length) out.push("Begin Template Settings", ...settings, "End Section");
     for (const s of doc.extraSections || []) out.push(`Begin ${s.name}`, ...s.lines, "End Section");
     return out.join("\r\n") + "\r\n";
@@ -1404,12 +1471,55 @@ const VA = (() => {
     t.fields = doc.fields.Weighting_Type ? { Weighting_Type: doc.fields.Weighting_Type } : {};
     t.fieldNotes = {};
     t.summaryLines = [];
+    t.templateWeights = null;
     for (const r of t.rows) {
       r.score = ""; r.conf = ""; r.opp = ""; r.scoreOv = null; r.confOv = null; r.oppOv = null; r.comment = "";
       r.notes = {}; r.fileBench = null;
     }
     return t;
   }
+  // ------------------------------------------------------------- the template's weightings
+  // Unlocking keeps a copy of the template's weightings (the ones in use while locked), so an assessment's
+  // dimension and overall scores can be put back on them to compare like for like with a benchmark.
+  function weightSnapshot(doc) {
+    const w = {}, keys = weightKeys(doc.rows);
+    doc.rows.forEach((r, i) => (w[keys[i]] = isNum(r.weight) ? r.weight : null));
+    return { method: doc.weighting === "tree" ? "tree" : "simple", w };
+  }
+  // A factor that doesn't apply: weighted 0 (or not at all) and left unanswered, as the templates' guidance asks for
+  // a "Where Applicable" factor that isn't. Comparisons leave it out, as the authority has, rather than score it 0.
+  const notApplicable = (r) => !!r.range && !(isNum(r.weight) && r.weight > 0) && !String(r.score || "").trim() && !isNum(r.scoreOv);
+  // the template's weighting for each row: as it was, or (for comparing) kept out where the factor doesn't apply
+  function templateWeightOf(doc, forComparing) {
+    const t = doc.templateWeights, keys = weightKeys(doc.rows);
+    return doc.rows.map((r, i) => (forComparing && notApplicable(r) ? (isNum(r.weight) ? r.weight : null) : hasOwn(t.w, keys[i]) ? (isNum(t.w[keys[i]]) ? t.w[keys[i]] : null) : isNum(r.weight) ? r.weight : null));
+  }
+  // whether an unlocked assessment's weightings differ from its template's (for comparing: other than factors
+  // that don't apply)
+  function weightsDiffer(doc, forComparing = false) {
+    const t = doc.templateWeights;
+    if (!t || doc.weightsLocked !== false) return false;
+    if ((doc.weighting === "tree" ? "tree" : "simple") !== t.method) return true;
+    const tw = templateWeightOf(doc, forComparing);
+    return doc.rows.some((r, i) => tw[i] !== (isNum(r.weight) ? r.weight : null));
+  }
+  // puts the template's weightings back on the assessment itself (all of them, when locking again)
+  function restoreTemplateWeights(doc, forComparing = false) {
+    const t = doc.templateWeights;
+    if (!t) return doc;
+    const tw = templateWeightOf(doc, forComparing);
+    doc.weighting = t.method;
+    doc.rows.forEach((r, i) => {
+      r.weight = tw[i];
+      r.treeWeight = t.method === "tree" ? (isNum(r.treeWeight) ? r.treeWeight : 0) : null;
+    });
+    return doc;
+  }
+  // the assessment on its template's weightings, for comparing; itself when that makes no difference
+  function onTemplateWeights(doc) {
+    return weightsDiffer(doc, true) ? restoreTemplateWeights({ ...doc, rows: doc.rows.map((r) => ({ ...r })) }, true) : doc;
+  }
+
   // a new assessment from a template
   function fromTemplate(tpl, profile = {}) {
     const d = clone(tpl);
@@ -1419,6 +1529,8 @@ const VA = (() => {
     d.fields = tpl.fields && tpl.fields.Weighting_Type ? { Weighting_Type: tpl.fields.Weighting_Type } : {};
     d.summaryLines = [];
     for (const r of d.rows) { r.fileBench = null; }
+    // a template that leaves its weightings unlocked: keep its own, for comparing like for like
+    d.templateWeights = tpl.weightsLocked === false ? weightSnapshot(tpl) : null;
     return d;
   }
   function clone(x) { return JSON.parse(JSON.stringify(x)); }
@@ -1457,9 +1569,17 @@ const VA = (() => {
       answered: c.answered,
       dims: c.dims.map((d) => ({ name: d.name, score: r2(d.score), conf: r2(d.conf), opp: r2(d.opp), share: r2(d.weightShare), factors: d.factors, answered: d.answered })),
       factors,
+      // weightings changed from the template's: the dimension and overall scores on the template's, which benchmarks use
+      ...(weightsDiffer(doc, true) ? { template: onTemplate(calculate(onTemplateWeights(doc)), r2) } : {}),
       network: readNum(doc.profile.Profile_Network_Length),
       budget: readNum(doc.profile.Profile_Highways_Budget),
       population: readNum(doc.profile.Profile_Served_Population),
+    };
+  }
+  function onTemplate(c, r2) {
+    return {
+      totals: { score: r2(c.totals.score), conf: r2(c.totals.conf), opp: r2(c.totals.opp) },
+      dims: c.dims.map((d) => ({ name: d.name, score: r2(d.score), conf: r2(d.conf), opp: r2(d.opp), share: r2(d.weightShare), factors: d.factors, answered: d.answered })),
     };
   }
   // the template's fingerprint: its factors, so assessments from the same template can be compared
@@ -1491,6 +1611,8 @@ const VA = (() => {
       const sc = rows.map((x) => x[0]);
       factors[k] = { score: pick(sc), conf: pick(rows.map((x) => x[1])), opp: pick(rows.map((x) => x[2])), n: sc.filter(isNum).length, q1: q(sc, 0.25), q3: q(sc, 0.75), min: q(sc, 0), max: q(sc, 1) };
     }
+    // an assessment whose weightings differ from its template's counts on the template's
+    summaries = summaries.map((s) => (s.template ? { ...s, totals: s.template.totals, dims: s.template.dims } : s));
     const dimNames = [...new Set(summaries.flatMap((s) => (s.dims || []).map((d) => d.name)))];
     const dims = dimNames.map((name) => {
       const ds = summaries.map((s) => (s.dims || []).find((d) => d.name === name)).filter(Boolean);
@@ -1507,7 +1629,7 @@ const VA = (() => {
     WEIGHTS_SIMPLE, WEIGHTS_EXPANDED, PALETTE,
     isNum, clean, norm, bracketValue, answerLabel, excelColour, cssToExcel, vbaNum, readNum,
     decodeBytes, encodeCp1252, parse, write, blankDoc, headingFlags, dimensions, factorKey, scaleFor, allScales, renumber,
-    calculate, treeWeights, toTemplate, fromTemplate, clone, guidanceFor, answerName, LEVELS, levelsOf, summarise, structureKey, aggregate, stamp, ukDate,
+    calculate, treeWeights, toTemplate, fromTemplate, clone, weightKey, weightKeys, weightSnapshot, weightsDiffer, restoreTemplateWeights, onTemplateWeights, guidanceFor, answerName, LEVELS, levelsOf, summarise, structureKey, aggregate, stamp, ukDate,
   };
 })();
 
@@ -2870,6 +2992,9 @@ function newWs({ id, doc, meta = {}, dirty = false, version = 0 }) {
   return ws;
 }
 const wsCalc = () => (A.ws.calc = VA.calculate(A.ws.doc, A.ws.bench ? A.ws.bench.factors : null));
+// Beside a benchmark: an assessment whose weightings differ from its template's is put back on the template's,
+// so its dimension and overall scores compare like for like. Null when they're the same.
+const fairCalc = () => (VA.weightsDiffer(A.ws.doc, true) ? VA.calculate(VA.onTemplateWeights(A.ws.doc), A.ws.bench ? A.ws.bench.factors : null) : null);
 
 async function pageWorkspace(idStr, tab) {
   const id = idStr === "local" ? 0 : Number(idStr);
@@ -2879,6 +3004,7 @@ async function pageWorkspace(idStr, tab) {
     const r = await api("/api/assessments/open", { id });
     const { doc, warnings } = VA.parse(r.va2, `${r.assessment.name}.va2`);
     await addGuidance(doc, r.assessment);
+    await addTemplateWeights(doc, r.assessment);
     A.ws = newWs({ id, doc, meta: r.assessment, version: r.assessment.version });
     if (warnings.length) setTimeout(() => toast(warnings[0], 7000), 300);
   }
@@ -2893,6 +3019,17 @@ async function addGuidance(doc, meta) {
     const t = list.find((x) => x.id === meta.template_id) || list.find((x) => x.fhrg && x.is_default && x.structure === meta.structure);
     if (t) doc.guidance = VA.parse((await api("/api/templates/get", { id: t.id })).vt2, "t.vt2").doc.guidance;
   } catch { /* the assessment still opens */ }
+}
+
+// An assessment unlocked before copies of the template's weightings were kept takes one from its template,
+// if that's still there with the same factors
+async function addTemplateWeights(doc, meta) {
+  if (doc.weightsLocked !== false || doc.templateWeights || !meta.template_id) return;
+  try {
+    const t = (await templates()).find((x) => x.id === meta.template_id);
+    if (!t || (meta.structure && t.structure !== meta.structure)) return;
+    doc.templateWeights = VA.weightSnapshot(VA.parse((await api("/api/templates/get", { id: t.id })).vt2, "t.vt2").doc);
+  } catch { /* compared on its own weightings, as the note says */ }
 }
 
 function renderWs(tab) {
@@ -3064,6 +3201,20 @@ function priorityMax() {
   return Math.max(0, ...A.ws.calc.rows.map((x) => (isNum(x.priority) ? x.priority : 0)));
 }
 const oppValue = (r) => (isNum(r.oppOv) ? r.oppOv : VA.bracketValue(r.opp));
+const f2 = (v) => (isNum(v) ? v.toFixed(2) : "–");
+// a factor's row totals: its performance weighted within its dimension, and within the whole assessment
+// (the Excel tool's Score_Total_Dimension and Score_Total_Assessment). The first adds up to the dimension's score,
+// the second to the overall score. Unanswered factors count as zero there; here they show a dash.
+function rowTotals(i) {
+  const c = A.ws.calc, x = c.rows[i], r = A.ws.doc.rows[i];
+  if (!x.scored || !x.answered) return { dim: null, all: null };
+  if (A.ws.doc.weighting !== "tree") return { dim: x.scoreDim, all: x.scoreAss };
+  const d = c.dims.find((y) => y.name === r.dimension);
+  return { dim: d && d.weightShare ? x.scoreAss / d.weightShare : 0, all: x.scoreAss };
+}
+// remembered in this browser where it can be, and for this visit where it can't
+let rowTotalsChoice = null;
+const rowTotalsOn = () => { if (rowTotalsChoice !== null) return rowTotalsChoice; try { return localStorage.getItem("va.rowTotals") === "1"; } catch { return false; } };
 function topPriorities(n = 10) {
   const c = A.ws.calc;
   return new Set(c.rows.map((x, i) => [i, x.priority]).filter(([, p]) => isNum(p) && p > 0).sort((a, b) => b[1] - a[1]).slice(0, n).map(([i]) => i));
@@ -3093,16 +3244,19 @@ function renderScorecard() {
       <button class="btn small quiet" type="button" id="sc-collapse">${ws.collapsed.size ? "Expand all" : "Collapse all"}</button>
     </div>
     <div class="lock-box"><label class="check"><input type="checkbox" id="sc-lock" ${doc.weightsLocked !== false ? "checked" : ""}> <span>Weightings locked</span></label>
-      ${doc.weightsLocked === false ? `<span class="lock-warn" id="sc-lock-warn">Unlocked: overall and dimension scores may not compare like for like in benchmarking.</span>` : `<span class="small muted">The template's weightings, so scores compare like for like in benchmarking.</span>`}</div>
-    <div class="sc ${ws.bench ? "show-bench" : ""}" id="sc">
+      <label class="check totals-box"><input type="checkbox" id="sc-totals" ${rowTotalsOn() ? "checked" : ""}> <span>Show row totals</span></label>
+      ${doc.weightsLocked === false ? `<span class="lock-warn" id="sc-lock-warn">${doc.templateWeights ? "Unlocked. Beside a benchmark, your scores are put back on the template's weightings so they compare like for like." : "Unlocked, with no copy of the template's weightings, so these weightings are the ones compared."}</span>` : `<span class="small muted">The template's weightings, so scores compare like for like in benchmarking.</span>`}</div>
+    <div class="sc ${ws.bench ? "show-bench" : ""} ${rowTotalsOn() ? "show-totals" : ""}" id="sc">
     ${dims.map((d, di) => {
       const idx = doc.rows.map((r, i) => (r.dimension === d ? i : -1)).filter((i) => i >= 0);
       return `<section class="dim ${ws.collapsed.has(d) ? "collapsed" : ""}" data-dim="${di}">
         <div class="dim-head"><button class="toggle" type="button" aria-expanded="${!ws.collapsed.has(d)}" aria-label="Show or hide ${esc(d)}" data-toggle="${di}">${ws.collapsed.has(d) ? "▸" : "▾"}</button>
           <h2><span class="dot" style="background:${dimColour(di)}"></span>${esc(d)}</h2><div class="stats" data-stats="${di}"></div></div>
         <div class="dim-body">
-          <div class="f-head" aria-hidden="true"><span>ID</span><span>Factor</span><span>Weighting</span><span>Performance</span><span class="c-b right">Bench.</span><span>Confidence</span><span>Opportunity</span><span class="right">Priority</span><span></span></div>
+          <div class="f-head" aria-hidden="true"><span>ID</span><span>Factor</span><span class="mid">Weighting</span><span class="mid">Performance</span><span class="c-b mid">Bench.</span><span class="c-t mid" title="Performance weighted within the dimension: these add up to the dimension's score">Dimension total</span><span class="c-t mid" title="Performance weighted within the whole assessment: these add up to the overall score">Assessment total</span><span class="mid">Confidence</span><span class="mid">Opportunity</span><span class="mid">Priority</span><span></span></div>
           ${idx.map((i) => rowHtml(i, top)).join("")}
+          <div class="f-row f-total" data-total="${di}"><span class="c-id"></span><span class="c-name"><span class="nm">${esc(d)} total</span></span>
+            <span class="ctl"><span class="sp"></span><span class="sp"></span><span class="c-b sp"></span><span class="c-t"><span class="lbl-mobile">Dimension total</span><span class="tv" data-tsum="dim"></span></span><span class="c-t"><span class="lbl-mobile">Assessment total</span><span class="tv" data-tsum="all"></span></span><span class="sp"></span><span class="sp"></span><span class="sp"></span></span><span></span></div>
         </div></section>`;
     }).join("")}
     </div>
@@ -3116,14 +3270,35 @@ function renderScorecard() {
   $("#sc-q").addEventListener("input", (e) => { ws.filter.q = e.target.value; applyFilter(); });
   $$("[data-show]").forEach((b) => b.addEventListener("click", () => { ws.filter.show = b.dataset.show; $$("[data-show]").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); applyFilter(); }));
   $("#sc-lock").addEventListener("change", async (e) => {
-    if (e.target.checked) { doc.weightsLocked = true; markDirty(); renderScorecardKeepScroll(); return; }
+    if (e.target.checked) {
+      // locking again puts the template's weightings back
+      const changed = VA.weightsDiffer(doc);
+      if (changed) {
+        e.target.checked = false;
+        const go = await confirmBox("Lock the weightings again?", "This puts the template's weightings back, so your scores compare like for like. The weightings you've changed will be replaced.", "Put them back and lock");
+        if (!go) return;
+        VA.restoreTemplateWeights(doc);
+      }
+      doc.weightsLocked = true;
+      doc.templateWeights = null;
+      markDirty();
+      renderScorecardKeepScroll();
+      toast(changed ? "The template's weightings are back, and locked." : "Weightings locked.", 4000);
+      return;
+    }
     e.target.checked = true;
-    const go = await confirmBox("Unlock the weightings?", "Unlocking weightings may break benchmarking. Other authorities' assessments use the template's weightings, so if you change them, your overall and dimension scores won't compare like for like. Each factor's answers still compare.", "Unlock weightings");
+    const go = await confirmBox("Unlock the weightings?", "Unlocking weightings may break benchmarking: your overall and dimension scores will use your own weightings, so they won't match other authorities' like for like. To keep comparisons fair, a copy of the template's weightings is kept, and your scores are put back on them wherever they're compared with a benchmark. Each factor's answers compare as they are.", "Unlock weightings");
     if (!go) return;
     doc.weightsLocked = false;
+    doc.templateWeights = VA.weightSnapshot(doc);
     markDirty();
     renderScorecardKeepScroll();
     toast("Weightings unlocked.", 4000);
+  });
+  $("#sc-totals").addEventListener("change", (e) => {
+    rowTotalsChoice = e.target.checked;
+    try { localStorage.setItem("va.rowTotals", e.target.checked ? "1" : "0"); } catch { /* this browser keeps nothing: kept for this visit */ }
+    $("#sc").classList.toggle("show-totals", e.target.checked);
   });
   $("#sc-collapse").addEventListener("click", () => {
     if (ws.collapsed.size) ws.collapsed.clear(); else dims.forEach((d) => ws.collapsed.add(d));
@@ -3151,6 +3326,8 @@ function rowHtml(i, top) {
       <label><span class="lbl-mobile">Weighting</span><select class="w ${shade(r.weight)}" data-k="weight" aria-label="Weighting for ${esc(r.factor)}" ${doc.weightsLocked !== false ? "disabled" : ""}>${weightOptions(r.weight)}</select></label>
       <label><span class="lbl-mobile">Performance</span><select data-k="score" class="${tint(sv)} ${!r.score && pending ? "pending" : ""}" aria-label="Performance for ${esc(r.factor)}">${answerOptions(scale, r.score)}</select></label>
       <span class="c-b" data-bench>${benchCell(i)}</span>
+      <span class="c-t" data-tdim><span class="lbl-mobile">Dimension total</span><span class="tv">${f1(rowTotals(i).dim)}</span></span>
+      <span class="c-t" data-tall><span class="lbl-mobile">Assessment total</span><span class="tv">${f2(rowTotals(i).all)}</span></span>
       <label><span class="lbl-mobile">Confidence</span><select data-k="conf" class="${tint(cv)}" aria-label="Confidence for ${esc(r.factor)}">${answerOptions(VA.CONFIDENCE, r.conf)}</select></label>
       <label><span class="lbl-mobile">Opportunity</span><select data-k="opp" class="${shade(oppValue(r))}" aria-label="Opportunity to improve ${esc(r.factor)}">${answerOptions(VA.OPPORTUNITY, r.opp)}</select></label>
       <span class="pri pri-bar ${top.has(i) ? "hi" : ""}" data-pri style="--p:${barShare(x.priority, priorityMax())}" title="Weighted priority"><span class="lbl-mobile">Priority</span><span class="pv">${isNum(x.priority) ? f1(x.priority) : "–"}</span><span class="pbar" aria-hidden="true"><i></i></span></span>
@@ -3274,6 +3451,8 @@ function refreshRow(i) {
 // the numbers that change with any answer: priorities, benchmark gaps, dimension totals, the summary strip
 function updateNumbers() {
   const ws = A.ws, c = wsCalc(), doc = ws.doc;
+  // beside a benchmark, on the template's weightings if this assessment's differ
+  const fc = ws.bench ? fairCalc() : null;
   const top = topPriorities(), max = priorityMax();
   $$("#sc .f-row[data-i]").forEach((row) => {
     const i = Number(row.dataset.i), x = c.rows[i];
@@ -3281,21 +3460,30 @@ function updateNumbers() {
     if (p) { $(".pv", p).textContent = isNum(x.priority) ? f1(x.priority) : "–"; p.classList.toggle("hi", top.has(i)); p.style.setProperty("--p", String(barShare(x.priority, max))); }
     const b = $("[data-bench]", row);
     if (b) b.innerHTML = benchCell(i);
+    const tot = $("[data-tdim]", row) ? rowTotals(i) : null;
+    if (tot) { $("[data-tdim] .tv", row).textContent = f1(tot.dim); $("[data-tall] .tv", row).textContent = f2(tot.all); }
     const sub = $("[data-sub]", row);
     if (sub) sub.innerHTML = rowSub(i);
   });
   c.dims.forEach((d, di) => {
+    const tr = $(`[data-total="${di}"]`);
+    if (tr) {
+      const idx = doc.rows.map((r, i) => (r.dimension === d.name ? i : -1)).filter((i) => i >= 0);
+      $('[data-tsum="dim"]', tr).textContent = f1(d.score);
+      $('[data-tsum="all"]', tr).textContent = f2(idx.reduce((a, i) => a + (rowTotals(i).all || 0), 0));
+    }
     const el = $(`[data-stats="${di}"]`);
     if (!el) return;
     const bench = ws.bench && ws.bench.dims && ws.bench.dims[d.name] ? ws.bench.dims[d.name].score : d.bench ? d.bench.score : null;
-    el.innerHTML = `<span>Score <b>${f1(d.score)}</b><span class="mini"><span style="width:${Math.max(0, Math.min(100, d.score))}%"></span>${isNum(bench) ? `<em style="left:${Math.max(0, Math.min(100, bench))}%" title="Benchmark ${f1(bench)}"></em>` : ""}</span></span>
+    const fd = fc && fc.dims[di] && Math.abs(fc.dims[di].score - d.score) >= 0.05 ? fc.dims[di] : null, shown = fd ? fd.score : d.score;
+    el.innerHTML = `<span>Score <b>${f1(d.score)}</b>${fd ? ` <span class="fair" title="Beside the benchmark, on the template's weightings">(${f1(fd.score)} on the template's)</span>` : ""}<span class="mini" ${fd ? `title="On the template's weightings, beside the benchmark"` : ""}><span style="width:${Math.max(0, Math.min(100, shown))}%"></span>${isNum(bench) ? `<em style="left:${Math.max(0, Math.min(100, bench))}%" title="Benchmark ${f1(bench)}"></em>` : ""}</span></span>
       <span>Confidence <b>${f0(d.conf)}</b></span><span>Opportunity <b>${f0(d.opp)}</b></span>
       <span>${d.answered}/${d.factors} answered</span><span title="This dimension's share of the overall weighting">${pct(d.weightShare)} of total</span>`;
   });
   const bt = ws.bench && ws.bench.totals;
   const strip = $("#strip");
   if (strip) {
-    strip.innerHTML = `<div><span class="lbl">Overall score</span><strong>${f1(c.totals.score)}</strong>${bt && isNum(bt.score) ? `<span class="bm">benchmark ${f1(bt.score)}</span>` : ""}</div>
+    strip.innerHTML = `<div><span class="lbl">Overall score</span><strong>${f1(c.totals.score)}</strong>${bt && isNum(bt.score) ? `<span class="bm">${fc ? `${f1(fc.totals.score)} on the template's weightings · ` : ""}benchmark ${f1(bt.score)}</span>` : ""}</div>
       <div><span class="lbl">Confidence</span><strong>${f1(c.totals.conf)}</strong></div>
       <div><span class="lbl">Opportunity</span><strong>${f1(c.totals.opp)}</strong></div>
       <div><span class="lbl">Answered</span><strong>${c.answered} of ${c.factors}</strong><span class="prog"><span style="width:${(c.completeness * 100).toFixed(1)}%"></span></span></div>
@@ -3407,26 +3595,29 @@ function renderProfile() {
 async function renderReport() {
   const ws = A.ws, doc = ws.doc, c = wsCalc(), p = doc.profile;
   const b = ws.bench;
-  const dims = c.dims;
+  // beside a benchmark, dimension and overall scores on the template's weightings if this assessment's differ
+  const fc = b ? fairCalc() : null, cc = fc || c;
+  const dims = cc.dims;
   const bd = (d) => (b && b.dims && b.dims[d.name]) || (d.bench ? { score: d.bench.score, conf: d.bench.conf, opp: d.bench.opp } : null);
   const rows = doc.rows.map((r, i) => ({ r, x: c.rows[i], i })).filter((o) => o.x.scored);
   const prio = rows.filter((o) => isNum(o.x.priority) && o.x.priority > 0).sort((a, z) => z.x.priority - a.x.priority).slice(0, 10);
   const strengths = rows.filter((o) => o.x.answered && o.x.score >= 75).sort((a, z) => z.x.overallWeight * z.x.score - a.x.overallWeight * a.x.score).slice(0, 6);
   const gaps = rows.filter((o) => o.x.answered && isNum(o.x.conf) && o.x.conf <= 25).sort((a, z) => z.x.overallWeight - a.x.overallWeight).slice(0, 6);
   const bt = b && b.totals;
-  const delta = bt && isNum(bt.score) ? c.totals.score - bt.score : null;
+  const delta = bt && isNum(bt.score) ? cc.totals.score - bt.score : null;
   const kpi = (lbl, v, sub = "", lead = false, d = null) => `<div class="kpi ${lead ? "lead" : ""}"><span class="lbl">${lbl}</span><strong>${v}</strong>${sub ? `<span class="sub">${sub}</span>` : ""}${isNum(d) ? `<span class="sub"><span class="delta ${d >= 0 ? "up" : "down"}">${signed(d)}</span> against ${esc(b.short || "the benchmark")}</span>` : ""}</div>`;
   $("#ws-body").innerHTML = `
     <div class="row no-print" style="justify-content:space-between;margin-bottom:1rem">
       <p class="muted" style="margin:0">${esc(p.Profile_Name || "")}${p.Profile_Reporting_Year ? ` · ${esc(p.Profile_Reporting_Year)}` : ""}${b ? ` · compared with ${esc(b.label)}` : ""}</p>
       <div class="row">${LIVE && !(typeof PREVIEW !== "undefined" && PREVIEW) ? `<button class="btn small secondary" type="button" id="rp-print">Print or save as PDF</button>` : ""}<button class="btn small secondary" type="button" id="rp-xlsx">${ICON.down} Excel report</button></div></div>
     <div class="kpis">
-      ${kpi("Overall score", `${f1(c.totals.score)} <small>/ 100</small>`, band(c.totals.score), true, delta)}
+      ${kpi("Overall score", `${f1(c.totals.score)} <small>/ 100</small>`, fc ? `${band(c.totals.score)}. ${f1(fc.totals.score)} on the template's weightings.` : band(c.totals.score), true, delta)}
       ${kpi("Confidence in the scores", `${f1(c.totals.conf)} <small>/ 100</small>`, "How well evidenced the answers are")}
       ${kpi("Opportunity to improve", `${f1(c.totals.opp)} <small>/ 100</small>`, "Higher means more room to improve")}
       ${kpi("Answered", `${c.answered} <small>of ${c.factors}</small>`, c.completeness < 0.999 ? `${pct(c.completeness)} of the weighting. Answered factors alone score ${f1(c.answeredScore)}.` : "Every weighted factor")}
-      ${bt && isNum(bt.q1) ? kpi("Where you sit", position(c.totals.score, bt), `${esc(b.short)}: middle half ${f1(bt.q1)} to ${f1(bt.q3)}`) : ""}
+      ${bt && isNum(bt.q1) ? kpi("Where you sit", position(cc.totals.score, bt), `${esc(b.short)}: middle half ${f1(bt.q1)} to ${f1(bt.q3)}`) : ""}
     </div>
+    ${fc ? `<div class="notice info"><p>${fairNote(c, fc, b)}</p></div>` : ""}
     ${c.completeness < 0.999 ? `<div class="notice warn"><p>${plural(c.factors - c.answered, "weighted factor")} ${c.factors - c.answered === 1 ? "isn't" : "aren't"} answered yet. As in the Excel tool, ${c.factors - c.answered === 1 ? "it counts" : "they count"} as zero in the totals until ${c.factors - c.answered === 1 ? "it is" : "they are"}. <a href="${href(`/a/${ws.id || "local"}/scorecard`)}" data-nav>Answer them</a></p></div>` : ""}
     <div class="grid-charts">
       <section class="card"><h2>Balance across the dimensions</h2><p class="small muted">Each dimension's performance, out of 100${b ? `, with ${esc(b.short)}` : ""}.</p>
@@ -3487,7 +3678,7 @@ function benchFromFile(doc) {
 // dimension and overall figures for a benchmark that has only factor figures: the doc's own weighting applied to them
 function finishBench(b, doc) {
   if (!b.dims || !b.totals) {
-    const d2 = VA.clone(doc);
+    const d2 = VA.clone(VA.onTemplateWeights(doc));
     d2.rows.forEach((r) => { const f = b.factors[VA.factorKey(r)]; r.scoreOv = f && isNum(f.score) ? f.score : null; r.confOv = f && isNum(f.conf) ? f.conf : null; r.oppOv = f && isNum(f.opp) ? f.opp : null; r.score = ""; r.conf = ""; r.opp = ""; });
     const c = VA.calculate(d2);
     b.dims = b.dims || Object.fromEntries(c.dims.map((d) => [d.name, { score: d.score, conf: d.conf, opp: d.opp }]));
@@ -3499,7 +3690,7 @@ function benchFromAggregate(agg, label, short, kind) {
   return { kind, label, short, n: agg.n, factors: agg.factors, dims: Object.fromEntries((agg.dims || []).map((d) => [d.name, d])), totals: agg.totals };
 }
 function benchFromDoc(doc, label, short, kind) {
-  const c = VA.calculate(doc), factors = {};
+  const c = VA.calculate(VA.onTemplateWeights(doc)), factors = {};
   doc.rows.forEach((r, i) => { const x = c.rows[i]; if (x.scored && x.answered) factors[VA.factorKey(r)] = { score: x.score, conf: x.conf, opp: x.opp }; });
   return { kind, label, short, factors, dims: Object.fromEntries(c.dims.map((d) => [d.name, { score: d.score, conf: d.conf, opp: d.opp }])), totals: { ...c.totals } };
 }
@@ -3604,11 +3795,16 @@ function setBench(b) {
   toast(b ? `Comparing with ${b.label}.` : "Benchmark removed.");
 }
 const benchSort = { by: "gap" };
+function fairNote(own, fc, b) {
+  return `Your weightings differ from the template's. To compare like for like with ${esc(b.short || "the benchmark")}, your dimension and overall scores here are on the template's weightings: overall ${f1(fc.totals.score)}, against ${f1(own.totals.score)} on your own.`;
+}
 function drawBenchResult() {
   const ws = A.ws, el = $("#bm-result");
   if (!el) return;
   if (!ws.bench) { el.innerHTML = `<div class="empty">Choose what to compare with. The benchmark then shows on the scorecard and in the report, and is saved into the file's benchmark columns for the Excel tool.</div>`; return; }
-  const c = wsCalc(), b = ws.bench, t = b.totals || {};
+  const own = wsCalc(), b = ws.bench, t = b.totals || {};
+  // dimension and overall scores on the template's weightings, if this assessment's differ from them
+  const fc = fairCalc(), c = fc || own;
   const d0 = c.totals.score - (t.score ?? 0);
   const rows = ws.doc.rows.map((r, i) => ({ r, x: c.rows[i] })).filter((o) => o.x.scored && o.x.bench && isNum(o.x.bench.score));
   const sorted = [...rows].sort((a, z) => {
@@ -3619,12 +3815,13 @@ function drawBenchResult() {
   const matched = rows.length, total = c.factors;
   el.innerHTML = `
     <div class="kpis">
-      <div class="kpi lead"><span class="lbl">Your overall score</span><strong>${f1(c.totals.score)}</strong><span class="sub">${band(c.totals.score)}</span></div>
+      <div class="kpi lead"><span class="lbl">Your overall score${fc ? ", on the template's weightings" : ""}</span><strong>${f1(c.totals.score)}</strong><span class="sub">${fc ? `${f1(own.totals.score)} on your own` : band(c.totals.score)}</span></div>
       <div class="kpi"><span class="lbl">${esc(b.short)}</span><strong>${f1(t.score)}</strong><span class="sub">${isNum(b.n) ? plural(b.n, "authority", "authorities") : "&nbsp;"}</span></div>
       <div class="kpi"><span class="lbl">Difference</span><strong class="${d0 >= 0 ? "gap-pos" : "gap-neg"}">${signed(d0)}</strong><span class="sub">${d0 >= 0 ? "above" : "below"} the benchmark</span></div>
       ${isNum(t.q1) ? `<div class="kpi"><span class="lbl">Where you sit</span><strong>${position(c.totals.score, t)}</strong><span class="sub">Middle half: ${f1(t.q1)} to ${f1(t.q3)}; range ${f1(t.min)} to ${f1(t.max)}</span></div>` : ""}
       <div class="kpi"><span class="lbl">Factors compared</span><strong>${matched} <small>of ${total}</small></strong><span class="sub">Matched on ID and factor name</span></div>
     </div>
+    ${fc ? `<div class="notice info"><p>${fairNote(own, fc, b)}</p></div>` : ""}
     ${matched < total ? `<div class="notice info"><p>${plural(total - matched, "factor")} ${total - matched === 1 ? "has" : "have"} no benchmark figure, usually because the benchmark comes from a different version of the scorecard.</p></div>` : ""}
     <section class="card"><h2>By dimension</h2>
       <div class="legend"><span><i style="background:var(--c-score)"></i>This assessment</span><span><i class="line" style="background:var(--ink)"></i>${esc(b.short)}</span>${Object.values(b.dims || {}).some((x) => isNum(x.q1)) ? `<span><i class="band"></i>Middle half of authorities</span>` : ""}</div>
@@ -3640,7 +3837,7 @@ function drawBenchResult() {
 
 // ------------------------------------------------------------- downloads: the Excel report and the factors
 function reportWorkbook() {
-  const ws = A.ws, doc = ws.doc, c = wsCalc(), p = doc.profile, b = ws.bench;
+  const ws = A.ws, doc = ws.doc, c = wsCalc(), p = doc.profile, b = ws.bench, fc = fairCalc();
   const H = (v) => ({ v, s: "head" });
   const n1 = (v) => (isNum(v) ? { v: Math.round(v * 10) / 10, s: "n1" } : "");
   const pc = (v) => (isNum(v) ? { v, s: "pct" } : "");
@@ -3649,31 +3846,35 @@ function reportWorkbook() {
     [`Value Analyser report, ${ukDateTime(new Date().toISOString())}`],
     [],
     ...[["Authority", p.Profile_Authority_Name], ["Assessment type", p.Profile_Type], ["Reporting year", p.Profile_Reporting_Year], ["Authority profile", p.Profile_Authority_Type], ["Assessment date", p.Profile_Date],
-      ["Assessor", p.Profile_Assessor_Name], ["Template", ws.meta.template_name], ["Weighting method", doc.weighting === "tree" ? "Tree" : "Simple"], ["Benchmark", b ? b.label : "None"]].map(([k, v]) => [{ v: k, s: "bold" }, v || ""]),
+      ["Assessor", p.Profile_Assessor_Name], ["Template", ws.meta.template_name], ["Weighting method", doc.weighting === "tree" ? "Tree" : "Simple"],
+      ["Weightings", doc.weightsLocked !== false ? "Locked: the template's" : fc ? "Unlocked, and changed from the template's" : "Unlocked, but the same as the template's"], ["Benchmark", b ? b.label : "None"]].map(([k, v]) => [{ v: k, s: "bold" }, v || ""]),
     [],
     [H("Totals"), H("Score"), H("Benchmark")],
-    ["Overall performance", n1(c.totals.score), n1(b && b.totals && b.totals.score)],
-    ["Confidence", n1(c.totals.conf), n1(b && b.totals && b.totals.conf)],
-    ["Opportunity", n1(c.totals.opp), n1(b && b.totals && b.totals.opp)],
+    ["Overall performance", n1(c.totals.score), fc ? "" : n1(b && b.totals && b.totals.score)],
+    ...(fc ? [["Overall performance on the template's weightings", n1(fc.totals.score), n1(b && b.totals && b.totals.score)]] : []),
+    ["Confidence", n1(c.totals.conf), fc ? "" : n1(b && b.totals && b.totals.conf)],
+    ...(fc ? [["Confidence on the template's weightings", n1(fc.totals.conf), n1(b && b.totals && b.totals.conf)]] : []),
+    ["Opportunity", n1(c.totals.opp), fc ? "" : n1(b && b.totals && b.totals.opp)],
+    ...(fc ? [["Opportunity on the template's weightings", n1(fc.totals.opp), n1(b && b.totals && b.totals.opp)]] : []),
     ["Weighted factors answered", { v: c.answered, s: "n0" }, ""],
     ["Weighted factors", { v: c.factors, s: "n0" }, ""],
     ["Score of answered factors only", n1(c.answeredScore), ""],
     [],
-    [H("Dimension"), H("Performance"), H("Confidence"), H("Opportunity"), H("Share of weighting"), H("Answered"), H("Factors"), H("Benchmark performance")],
-    ...c.dims.map((d) => [d.name, n1(d.score), n1(d.conf), n1(d.opp), pc(d.weightShare), { v: d.answered, s: "n0" }, { v: d.factors, s: "n0" }, n1(b && b.dims && b.dims[d.name] ? b.dims[d.name].score : null)]),
+    [H("Dimension"), H("Performance"), H("Confidence"), H("Opportunity"), H("Share of weighting"), H("Answered"), H("Factors"), H("Benchmark performance"), ...(fc ? [H("Performance on the template's weightings")] : [])],
+    ...c.dims.map((d, k) => [d.name, n1(d.score), n1(d.conf), n1(d.opp), pc(d.weightShare), { v: d.answered, s: "n0" }, { v: d.factors, s: "n0" }, n1(b && b.dims && b.dims[d.name] ? b.dims[d.name].score : null), ...(fc ? [n1(fc.dims[k] && fc.dims[k].score)] : [])]),
   ];
-  const head = ["ID", "Dimension", "Factor", "Tier", "Scoring range", "Weighting", "Share of dimension", "Share of total", "Performance answer", "Performance", "Confidence answer", "Confidence", "Opportunity answer", "Opportunity", "Contribution", "Priority", "Benchmark", "Difference", "Comment"];
+  const head = ["ID", "Dimension", "Factor", "Tier", "Scoring range", "Weighting", "Share of dimension", "Share of total", "Performance answer", "Performance", "Confidence answer", "Confidence", "Opportunity answer", "Opportunity", "Dimension total", "Assessment total", "Priority", "Benchmark", "Difference", "Comment"];
   const factors = [head.map(H), ...doc.rows.map((r, i) => {
     const x = c.rows[i];
     return [r.id ?? "", r.dimension, VA.clean(r.factor), r.tier, r.range, isNum(r.weight) ? r.weight : "", x.heading ? "" : pc(x.rowWeight), x.heading ? "" : pc(x.overallWeight), r.score, n1(x.score), r.conf, n1(x.conf), r.opp, n1(x.opp),
-      n1(x.scoreAss), n1(x.priority), n1(x.bench && x.bench.score), isNum(x.score) && x.bench && isNum(x.bench.score) ? n1(x.score - x.bench.score) : "", { v: r.comment || "", s: "wrap" }];
+      n1(rowTotals(i).dim), isNum(rowTotals(i).all) ? Math.round(rowTotals(i).all * 1000) / 1000 : "", n1(x.priority), n1(x.bench && x.bench.score), isNum(x.score) && x.bench && isNum(x.bench.score) ? n1(x.score - x.bench.score) : "", { v: r.comment || "", s: "wrap" }];
   })];
   const pr = doc.rows.map((r, i) => ({ r, x: c.rows[i] })).filter((o) => isNum(o.x.priority) && o.x.priority > 0).sort((a, z) => z.x.priority - a.x.priority);
   const prio = [["Rank", "ID", "Dimension", "Factor", "Performance", "Confidence", "Opportunity", "Weighting", "Priority", "Comment"].map(H),
     ...pr.map((o, k) => [k + 1, o.r.id ?? "", o.r.dimension, VA.clean(o.r.factor), n1(o.x.score), n1(o.x.conf), n1(o.x.opp), o.r.weight, n1(o.x.priority), { v: o.r.comment || "", s: "wrap" }])];
   return XLSX.build([
-    { name: "Summary", rows: summary, cols: [34, 14, 14, 14, 16, 11, 10, 20], gridlines: false },
-    { name: "Factors", rows: factors, cols: [7, 22, 50, 6, 22, 10, 10, 10, 24, 11, 18, 11, 18, 11, 12, 10, 11, 11, 60], freeze: "D2", filter: `A1:S${factors.length}`, landscape: true },
+    { name: "Summary", rows: summary, cols: [34, 14, 14, 14, 16, 11, 10, 20, 22], gridlines: false },
+    { name: "Factors", rows: factors, cols: [7, 22, 50, 6, 22, 10, 10, 10, 24, 11, 18, 11, 18, 11, 12, 12, 10, 11, 11, 60], freeze: "D2", filter: `A1:T${factors.length}`, landscape: true },
     { name: "Priorities", rows: prio, cols: [6, 7, 22, 50, 12, 12, 12, 10, 10, 60], freeze: "A2", landscape: true },
   ]);
 }
