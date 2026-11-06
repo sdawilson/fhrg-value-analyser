@@ -1,0 +1,22 @@
+{
+  "name": "fhrg-value-analyser",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Value Analyser: a balanced-scorecard toolkit for value for money, best practice and strategic options",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "start": "node dist/server.js",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node test/run.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.0",
+    "esbuild": "^0.25.10",
+    "jsdom": "^30.1.3",
+    "typescript": "^5.9.0"
+  }
+}
