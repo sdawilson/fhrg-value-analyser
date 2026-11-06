@@ -494,6 +494,14 @@ const saveTemplate = async () => {
   w.document.querySelector("#te-save").click();
   await wait(() => { const d = w.document.querySelector("dialog.ask[open]"); if (d && /Save with problems/.test(d.textContent)) d.querySelector("button[value=ok]").click(); return /^Saved$/.test(w.document.querySelector("#te-status")?.textContent || ""); }, "the template to save");
 };
+await test("swapping a service's name keeps capitals, and leaves the names of bodies and laws alone", () => {
+  const sw = (s, to = "Waste") => VA.swapWords(s, "Highways", to);
+  assert.equal(sw("Highways budget"), "Waste budget");
+  assert.equal(sw("the highway network and HIGHWAYS teams"), "the waste network and WASTE teams");
+  assert.equal(sw("Liaison with Highways England and the Highway Code, then highways"), "Liaison with Highways England and the Highway Code, then waste");
+  assert.equal(sw("Highwayside"), "Highwayside", "only whole words");
+  assert.equal(sw("Highways", "highways"), "Highways", "the same service changes nothing");
+});
 await test("template cards say which service and level they're for", async () => {
   await openTemplates();
   assert.match(cardOf("Value for Money (Highways)").textContent, /Highways · Service level/);

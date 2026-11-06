@@ -1531,13 +1531,22 @@ const VA = (() => {
   // ------------------------------------------------------------- copying a template to another service
   // The service's name, and its singular ("Highways", "highway"), become the new service's name wherever they
   // appear as words, keeping their capitals.
+  // Names of bodies and laws stay as they are: "Highways England" isn't the highway service.
+  const KEEP_NAMES = ["Highways England", "National Highways", "Highways Agency", "Highways Act", "Highway Code", "Highways Term Maintenance Association"];
   function swapWords(text, from, to) {
     const s = String(text ?? "");
     from = String(from || "").trim(); to = String(to || "").trim();
     if (!s || !from || !to || from.toLowerCase() === to.toLowerCase()) return s;
     const forms = [...new Set([from, from.replace(/s$/i, "")])].filter((f) => f.length >= 3).sort((a, b) => b.length - a.length);
     const re = new RegExp(`\\b(${forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "gi");
-    return s.replace(re, (m) => (m.length > 1 && m === m.toUpperCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to.toLowerCase()));
+    const kept = new RegExp(`\\b(?:${KEEP_NAMES.map((n) => n.replace(/ /g, "\\s+")).join("|")})\\b`, "gi");
+    // swap only between the names kept as they are
+    let out = "", at = 0;
+    for (const m of s.matchAll(kept)) { out += swapIn(s.slice(at, m.index)) + m[0]; at = m.index + m[0].length; }
+    return out + swapIn(s.slice(at));
+    function swapIn(part) {
+      return part.replace(re, (m) => (m.length > 1 && m === m.toUpperCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to.toLowerCase()));
+    }
   }
   // swaps the service in a template's dimensions, factors, guidance and type; returns what changed, to check
   function swapService(doc, from, to) {
