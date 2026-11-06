@@ -1538,22 +1538,32 @@ const VA = (() => {
     from = String(from || "").trim(); to = String(to || "").trim();
     if (!s || !from || !to || from.toLowerCase() === to.toLowerCase()) return s;
     const forms = [...new Set([from, from.replace(/s$/i, "")])].filter((f) => f.length >= 3).sort((a, b) => b.length - a.length);
-    const re = new RegExp(`\\b(${forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "gi");
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])(${forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?![\\p{L}\\p{N}])`, "giu");
+    // mid-sentence, the new name goes into lower case, apart from any acronym in it ("SEN transport")
+    const lower = to.split(/(\s+)/).map((w) => (w.length > 1 && /\p{Lu}/u.test(w) && w === w.toUpperCase() ? w : w.toLowerCase())).join("");
     const kept = new RegExp(`\\b(?:${KEEP_NAMES.map((n) => n.replace(/ /g, "\\s+")).join("|")})\\b`, "gi");
     // swap only between the names kept as they are
     let out = "", at = 0;
     for (const m of s.matchAll(kept)) { out += swapIn(s.slice(at, m.index)) + m[0]; at = m.index + m[0].length; }
     return out + swapIn(s.slice(at));
     function swapIn(part) {
-      return part.replace(re, (m) => (m.length > 1 && m === m.toUpperCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to.toLowerCase()));
+      return part.replace(re, (m) => (m.length > 1 && m === m.toUpperCase() && m !== m.toLowerCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() && m[0] !== m[0].toLowerCase() ? to[0].toUpperCase() + to.slice(1) : lower));
     }
   }
   // swaps the service in a template's dimensions, factors, guidance and type; returns what changed, to check
   function swapService(doc, from, to) {
     const changes = [];
     const swap = (where, v, set) => { const n = swapWords(v, from, to); if (n !== String(v ?? "")) { changes.push({ where, before: v, after: n }); set(n); } };
-    const dimMap = {};
-    for (const d of dimensions(doc.rows)) swap("Dimension", d, (n) => (dimMap[d] = n));
+    const dimMap = {}, dims = dimensions(doc.rows), taken = new Set(dims.map((d) => d.toLowerCase()));
+    for (const d of dims) {
+      const n = swapWords(d, from, to);
+      if (n === d) continue;
+      // two dimensions would become one: keep this one's name, and say so
+      if (taken.has(n.toLowerCase())) { changes.push({ where: "Dimension kept", before: d, after: `"${n}" is already a dimension, so "${d}" keeps its name` }); continue; }
+      taken.add(n.toLowerCase());
+      dimMap[d] = n;
+      changes.push({ where: "Dimension", before: d, after: n });
+    }
     for (const r of doc.rows) {
       if (dimMap[r.dimension]) r.dimension = dimMap[r.dimension];
       swap(r.weight === null && !r.range ? "Heading" : "Factor", r.factor, (n) => (r.factor = n));
@@ -1919,6 +1929,7 @@ const Demo = (() => {
         const name = String(b.name || "").replace(/\s+/g, " ").trim();
         if (name.length < 2 || name.length > 60) fail("Give the service a name of 2 to 60 characters.", 400, { field: "name" });
         if (/[\\/:*?"<>|]/.test(name)) fail('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, { field: "name" });
+        if (/[^\u0020-\u007e\u00a0-\u00ff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/u.test(name)) fail("A service's name can only use letters, numbers and punctuation that the Excel tool's files can hold, so no emoji or symbols from other alphabets.", 400, { field: "name" });
         if (b.scope === "fhrg" && !S.me.siteAdmin) fail("Only the FHRG team can add to the FHRG's services. Add it for your authority instead.", 403);
         const scope = b.scope === "fhrg" ? 0 : S.me.authorityId;
         const found = S.services.find((s) => s.name.toLowerCase() === name.toLowerCase() && (s.scope_id === 0 || s.scope_id === scope));
@@ -2672,7 +2683,7 @@ function renderAccount() {
   $("#signout").addEventListener("click", async () => {
     if (!(await leaveOk())) return;
     await api("/api/logout");
-    A.me = null; A.ws = null; A.te = null; A.templates = null; A.assessments = null;
+    A.me = null; A.ws = null; A.te = null; A.templates = null; A.assessments = null; A.services = null;
     renderAccount();
     go("/signin", true);
     toast("You've signed out.");
@@ -2689,7 +2700,7 @@ function demoBar() {
   $("#demo-role").addEventListener("change", async (e) => {
     Demo.setRole(e.target.value);
     await boot();
-    A.templates = null; A.assessments = null;
+    A.templates = null; A.assessments = null; A.services = null;
     renderAccount();
     route();
   });
@@ -2812,6 +2823,8 @@ async function services(force = false) {
   return A.services;
 }
 const svcName = (x) => String((x && x.service) || "").trim() || VA.DEFAULT_SERVICE;
+// text the workbook's encoding (Windows-1252) can hold
+const fitsFile = (s) => !/[^\u0020-\u007e\u00a0-\u00ff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/u.test(String(s));
 const levelsText = (levels) => VA.levelsOf(levels).map(([, l]) => l).join(", ");
 async function assessments(force = false) {
   if (!A.assessments || force) A.assessments = (await api("/api/assessments/list", { withSummary: true })).assessments;
@@ -2849,6 +2862,8 @@ function pageSignin(q) {
     await busy(btn, async () => {
       try {
         await api("/api/login", { email: f.email.value, password: f.password.value, remember: f.remember.checked });
+        // nothing from whoever used this tab before
+        A.templates = null; A.assessments = null; A.services = null; A.ws = null; A.te = null;
         await boot();
         if (!A.me) { notice($("#msg"), "error", "Your password was right, but this browser didn't keep the sign-in. Check that cookies aren't blocked for this site, then try again."); return; }
         renderAccount();
@@ -4125,8 +4140,12 @@ async function copyTemplate(t) {
   if (!(await leaveOk("/templates"))) return;
   const svcs = await services();
   const from = svcName(t), levels0 = VA.levelsOf(t.levels).map(([k]) => k);
-  const canHide = (A.me.siteAdmin || (!t.fhrg && (t.created_by === A.me.email || A.me.role === "lead"))) && !(t.fhrg && t.is_default);
+  const canEdit = A.me.siteAdmin || (!t.fhrg && (t.created_by === A.me.email || A.me.role === "lead"));
   const defScope = t.fhrg && A.me.siteAdmin ? "fhrg" : "authority";
+  // a move keeps the template where it was: an FHRG template's copy is the FHRG's, an authority's stays with that authority
+  const ownAuthority = t.scope_id === undefined || t.scope_id === null || t.scope_id === A.me.authorityId;
+  const sameScope = (scope) => (t.fhrg ? scope === "fhrg" : scope === "authority" && ownAuthority);
+  const canHide = canEdit && !(t.fhrg && t.is_default) && (t.fhrg ? A.me.siteAdmin : ownAuthority);
   const list = svcs.some((s) => s.name.toLowerCase() === from.toLowerCase()) ? svcs : [{ name: from, fhrg: true }, ...svcs];
   const suggest = (to, levels, scope) => {
     const swapped = VA.swapWords(t.name, from, to);
@@ -4148,7 +4167,14 @@ async function copyTemplate(t) {
     onOpen: (d) => {
       const f = $("form", d), sel = $("#cp-svc", d), wrap = $("#cp-new-wrap", d), nm = $("#cp-name", d), sc = $("#cp-scope", d);
       const current = () => ({ to: sel.value || $("#cp-new", d).value.trim() || from, levels: VA.LEVELS.map(([k]) => k).filter((k) => $(`input[name="lv_${k}"]`, f).checked), scope: sc ? sc.value : "authority" });
-      const update = () => { wrap.hidden = !!sel.value; if (!touched) { const c = current(); nm.value = suggest(c.to, c.levels, c.scope); } };
+      const hide = $("#cp-hide", d);
+      const update = () => {
+        wrap.hidden = !!sel.value;
+        const c = current();
+        if (!touched) nm.value = suggest(c.to, c.levels, c.scope);
+        if (hide) { hide.disabled = !sameScope(c.scope); if (hide.disabled) hide.checked = false; }
+      };
+      update();
       nm.addEventListener("input", () => (touched = true));
       f.addEventListener("change", (e) => { if (e.target !== nm) update(); });
       $("#cp-new", d).addEventListener("input", update);
@@ -4160,6 +4186,7 @@ async function copyTemplate(t) {
       if (!x.service) {
         const s = String(x.newService || "").trim();
         if (s.length < 2) return "Name the new service.";
+        if (!fitsFile(s)) return "A service's name can only use letters, numbers and punctuation that the Excel tool's files can hold.";
         if (/[\\/:*?"<>|]/.test(s)) return 'A service\'s name can\'t contain any of \\ / : * ? " < > |';
       }
       if (!VA.LEVELS.some(([k]) => x[`lv_${k}`])) return "Tick at least one level where it can be used.";
@@ -4173,14 +4200,15 @@ async function copyTemplate(t) {
     const r = await api("/api/templates/get", { id: t.id });
     const doc = VA.parse(r.vt2, "t.vt2").doc;
     doc.kind = "template";
-    const changes = from.toLowerCase() !== to.toLowerCase() ? VA.swapService(doc, from, to) : [];
+    const saved = svcName({ service: doc.service || r.template.service });
+    const changes = saved.toLowerCase() !== to.toLowerCase() ? VA.swapService(doc, saved, to) : [];
     doc.service = to;
     doc.levels = VA.LEVELS.map(([k]) => k).filter((k) => v[`lv_${k}`]).join(",");
-    const before = r.template.description || doc.description || "", description = VA.swapWords(before, from, to);
+    const before = r.template.description || doc.description || "", description = VA.swapWords(before, saved, to);
     if (description !== before) changes.push({ where: "Description", before, after: description });
-    const profileType = VA.swapWords(r.template.profile_type || doc.profile.Profile_Type || "", from, to);
+    const profileType = VA.swapWords(r.template.profile_type || doc.profile.Profile_Type || "", saved, to);
     A.te = newTe({ id: 0, doc, name: String(v.name).trim(), profileType, description, scope, dirty: true,
-      meta: { copyOf: { id: t.id, name: t.name, from, to, levels: doc.levels, changes, hide: !!v.hide } } });
+      meta: { copyOf: { id: t.id, name: r.template.name, from: saved, to, levels: doc.levels, changes, hide: !!v.hide && canHide && sameScope(scope) } } });
     go("/templates/local");
   } catch (e) { fail(e); }
 }
@@ -4682,7 +4710,7 @@ async function adminBenchmarks(body) {
         <div class="field"><label for="bu-year">Reporting year</label><input id="bu-year" name="reporting_year" type="text" value="${esc(p0.Profile_Reporting_Year || "")}"></div></div>
         <div class="field"><label for="bu-desc">Description</label><input id="bu-desc" name="description" type="text"></div>`, validate: (x) => (!String(x.name).trim() ? "Give the benchmark a name." : "") });
       if (!v) return;
-      await api("/api/admin/benchmark-save", { ...v, summaries: docs.map((d) => VA.summarise(d)), files: files.map((f) => f.name), structure: VA.structureKey(docs[0]), members: files.length });
+      await api("/api/admin/benchmark-save", { ...v, service: svcName(docs[0]), summaries: docs.map((d) => VA.summarise(d)), files: files.map((f) => f.name), structure: VA.structureKey(docs[0]), members: files.length });
       toast("Benchmark uploaded."); adminBenchmarks(body);
     } catch (err) { fail(err, $("#bu-msg")); }
   });

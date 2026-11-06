@@ -121,7 +121,7 @@ export async function handleTemplateSave(c: Config, request: Request): Promise<R
   const t = now();
   const profileType = cleanText(b.profileType, 100) || headerValue(text, "Profile Type") || null;
   const levels = cleanLevels(b.levels ?? headerValue(text, "Template Levels"));
-  const service = await listedService(c, b.service ?? headerValue(text, "Template Service"));
+  const service = await listedService(c, b.service ?? headerValue(text, "Template Service"), scope === 0 ? 0 : me.authorityId);
   const fields = [name, name.toLowerCase(), profileType, cleanText(b.description, 1000) || null, key, rows.length, new Set(rows.map((r) => r.dimension)).size, structureKey(rows), bytes.length, levels, service];
   let newId = id, version = 1;
   if (existing) {

@@ -485,6 +485,8 @@ await test("the template names are clean", () => {
 const acceptLeave = () => { const d = w.document.querySelector("dialog.ask[open]"); if (d && /Leave without saving/.test(d.textContent)) d.querySelector("button[value=ok]").click(); };
 const demoCall = async (path, body = {}) => JSON.parse(await w.eval(`(async () => JSON.stringify(await Demo.call(${JSON.stringify(path)}, ${JSON.stringify(body)})))()`));
 const openTemplates = async () => {
+  // from another page, so the list is drawn afresh
+  if (/\/templates$/.test(w.location.hash)) { w.location.hash = "/benchmarks"; await wait(() => !w.document.querySelector("[data-copy]") && !/Loading/.test(w.document.querySelector("#main")?.textContent || ""), "another page"); }
   acceptLeave(); w.location.hash = "/templates";
   await wait(() => (acceptLeave(), /Scorecard templates/.test(w.document.querySelector("#main")?.textContent || "") && w.document.querySelector("[data-copy]")), "the templates");
 };
@@ -501,6 +503,17 @@ await test("swapping a service's name keeps capitals, and leaves the names of bo
   assert.equal(sw("Liaison with Highways England and the Highway Code, then highways"), "Liaison with Highways England and the Highway Code, then waste");
   assert.equal(sw("Highwayside"), "Highwayside", "only whole words");
   assert.equal(sw("Highways", "highways"), "Highways", "the same service changes nothing");
+  assert.equal(VA.swapWords("Parks & Gardens (North) budget, and parks & gardens (north) staff", "Parks & Gardens (North)", "Waste"), "Waste budget, and waste staff", "names ending in punctuation");
+  assert.equal(sw("the highways team", "SEN Transport"), "the SEN transport team", "an acronym keeps its capitals");
+});
+await test("copying never merges two dimensions into one", () => {
+  const d = VA.blankDoc();
+  d.rows = [["Highway network", 100], ["Waste network", 200]].flatMap(([dim, id]) => [{ id, dimension: dim, factor: dim, tier: 0, weight: null, range: "" }, { id: id + 1, dimension: dim, factor: "A factor", tier: 1, weight: 50, range: "Excellent To Poor" }]);
+  d.guidance = { "dim:Highway network": { desc: "Roads", levels: {} }, "dim:Waste network": { desc: "Bins", levels: {} } };
+  const changes = VA.swapService(d, "Highways", "Waste");
+  assert.equal(JSON.stringify(VA.dimensions(d.rows)), JSON.stringify(["Highway network", "Waste network"]));
+  assert.equal(Object.keys(d.guidance).length, 2);
+  assert.ok(changes.some((c) => c.where === "Dimension kept"));
 });
 await test("template cards say which service and level they're for", async () => {
   await openTemplates();
@@ -582,6 +595,25 @@ await test("FHRG administrators keep the list of services", async () => {
   await wait(() => w.document.querySelector("dialog.ask[open]"), "the question");
   w.document.querySelector("dialog.ask[open] button[value=ok]").click();
   await wait(() => !rows().some((r) => /Libraries/.test(r)), "it to go");
+  // an FHRG template moves only as an FHRG template: copied for one authority, the original can't be hidden
+  await openTemplates();
+  cardOf("Best Practice Carbon").querySelector("[data-copy]").click();
+  await wait(() => w.document.querySelector("dialog.ask[open] #cp-scope"), "the copy dialog");
+  const d = w.document.querySelector("dialog.ask[open]");
+  assert.equal(d.querySelector("#cp-hide"), null, "the default for its type stays");
+  d.querySelector("[data-cancel]").click();
+  await wait(() => !w.document.querySelector("dialog.ask[open]"), "the dialog to close");
+  const spare = await demoCall("/api/templates/save", { name: "Spare FHRG template", scope: "fhrg", vt2: VA.write(VA.parse((await demoCall("/api/templates/get", { id: 1 })).vt2, "t.vt2").doc, {}) });
+  await openTemplates();
+  cardOf("Spare FHRG template").querySelector("[data-copy]").click();
+  await wait(() => w.document.querySelector("dialog.ask[open] #cp-hide"), "the copy dialog");
+  const d2 = w.document.querySelector("dialog.ask[open]");
+  assert.equal(d2.querySelector("#cp-hide").disabled, false);
+  set(d2.querySelector("#cp-scope"), "authority");
+  assert.equal(d2.querySelector("#cp-hide").disabled, true, "a copy for one authority can't move an FHRG template");
+  d2.querySelector("[data-cancel]").click();
+  await wait(() => !w.document.querySelector("dialog.ask[open]"), "the dialog to close");
+  await demoCall("/api/templates/delete", { id: spare.id });
   set(role, "lead");
   await wait(() => w.document.querySelector(".nav [data-admin]").hidden, "the lead's view");
 });

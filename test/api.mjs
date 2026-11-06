@@ -195,6 +195,7 @@ await test("services: everyone sees the FHRG's list, and an authority's own stay
   expectStatus(await call("/api/services/add", { name: "Waste", scope: "fhrg" }, ann), 403);
   expectStatus(await call("/api/services/add", { name: "Waste/../x" }, ann), 400);
   expectStatus(await call("/api/services/add", { name: "W" }, ann), 400);
+  expectStatus(await call("/api/services/add", { name: "Parks 🌳" }, ann), 400, "only what the Excel tool's files can hold");
   const w = await call("/api/services/add", { name: "Waste", scope: "fhrg" }, boss);
   expectStatus(w, 200); assert.equal(w.service.fhrg, true);
   assert.ok((await call("/api/services/list", {}, cat)).services.some((s) => s.name === "Waste"));
@@ -211,6 +212,10 @@ await test("a template's service comes from its file or the save, and the list c
   assert.ok(!(await only("Highways")).includes("Waste value for money"));
   expectStatus(await call("/api/templates/save", { id: r.id, baseVersion: 1, name: "Waste value for money", vt2: va2([[1, "Economy", "One"]]), service: "Parks and open spaces" }, bob), 200);
   assert.equal((await call("/api/templates/list", {}, bob)).templates.find((x) => x.id === r.id).service, "Parks and open spaces");
+  // another authority's own spelling isn't looked up, so it can't learn that Northbridge has the service
+  const e = await call("/api/templates/save", { name: "East parks", vt2: va2([[1, "Economy", "One"]]), service: "parks AND open spaces" }, cat);
+  assert.equal((await call("/api/templates/list", {}, cat)).templates.find((x) => x.id === e.id).service, "parks AND open spaces");
+  await call("/api/templates/delete", { id: e.id }, cat);
 });
 await test("hiding a template: its creator or lead can, others can't, and the FHRG's default stays", async () => {
   const other = await login("other@north.test");
@@ -388,6 +393,14 @@ await test("peers and benchmarks only compare assessments of the same service", 
   assert.ok(opts.some((o) => o.service === "Waste" && o.authorities === 4) && opts.some((o) => o.service === "Highways"));
   expectStatus(await call("/api/admin/benchmark-delete", { id: b.id }, boss), 200);
   for (const [id, who] of made) await call("/api/assessments/delete", { id }, who);
+  // capitals don't matter, accented ones included
+  const ef = [];
+  for (const [n, who, s] of [["West energy", dee, "Énergie"], ["South energy", eve, "ÉNERGIE"], ["East energy", cat, "énergie"], ["North energy", bob, "Énergie"]]) {
+    const r = await call("/api/assessments/save", { name: n, va2: inService(text, s), summary: summary(70) }, who); expectStatus(r, 200); ef.push([r.id, who]);
+  }
+  const en = await call("/api/benchmarks/peers", { assessmentId: ef[3][0] }, bob);
+  assert.equal(en.ok, true); assert.equal(en.count, 3);
+  for (const [id, who] of ef) await call("/api/assessments/delete", { id }, who);
 });
 await test("only the FHRG team removes a service, and not one in use, or Highways", async () => {
   const list = (await call("/api/services/list", { all: true }, boss)).services;

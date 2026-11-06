@@ -4,7 +4,7 @@
 //    when at least MIN_PEERS authorities are in it
 import { requireMe, requireSiteAdmin } from "./accounts";
 import { assessmentFor, cleanSummary } from "./assessments";
-import { DEFAULT_SERVICE, cleanService, listedService } from "./services";
+import { DEFAULT_SERVICE, cleanService, listedService, serviceKey } from "./services";
 import type { Config } from "./config";
 import type { Row, Val } from "./db";
 import { audit, exec, q } from "./db";
@@ -91,15 +91,17 @@ export async function handleBenchmarkGet(c: Config, request: Request): Promise<R
 // the latest shared assessment from each authority that matches
 // (always of the same service: an assessment that doesn't say is for Highways)
 export async function peerSummaries(c: Config, f: { profileType: string; service?: string; structure?: string; year?: string; authorityProfile?: string; excludeAuthority?: number; excludeId?: number }): Promise<Row[]> {
-  const where = ["a.shared = 1", "a.summary IS NOT NULL", "a.profile_type = ?", "LOWER(COALESCE(a.service, ?)) = ?"];
-  const args: Val[] = [f.profileType, DEFAULT_SERVICE, cleanService(f.service).toLowerCase()];
+  const where = ["a.shared = 1", "a.summary IS NOT NULL", "a.profile_type = ?"];
+  const args: Val[] = [f.profileType];
   if (f.structure) { where.push("a.structure = ?"); args.push(f.structure); }
   if (f.year) { where.push("a.reporting_year = ?"); args.push(f.year); }
   if (f.authorityProfile) { where.push("a.authority_profile = ?"); args.push(f.authorityProfile); }
   if (f.excludeAuthority) { where.push("a.authority_id <> ?"); args.push(f.excludeAuthority); }
   if (f.excludeId) { where.push("a.id <> ?"); args.push(f.excludeId); }
-  const rows = await q(c, `SELECT a.id, a.authority_id, a.name, a.updated, a.reporting_year, a.summary, au.name AS authority_name
+  const service = serviceKey(f.service);
+  const all = await q(c, `SELECT a.id, a.authority_id, a.name, a.updated, a.reporting_year, a.summary, a.service, au.name AS authority_name
     FROM va_assessments a JOIN authorities au ON au.id = a.authority_id WHERE ${where.join(" AND ")} ORDER BY a.updated DESC LIMIT 2000`, ...args);
+  const rows = all.filter((r) => serviceKey(r.service) === service);
   const latest = new Map<number, Row>();
   for (const r of rows) if (!latest.has(r.authority_id)) latest.set(r.authority_id, r);
   return [...latest.values()].map((r) => ({ ...r, summary: safeParse(r.summary) })).filter((r) => r.summary && r.summary.totals);
@@ -131,7 +133,7 @@ export async function handleAdminBenchmarks(c: Config, request: Request): Promis
   await requireSiteAdmin(c, request);
   const rows = await q(c, "SELECT * FROM va_benchmarks ORDER BY profile_type, reporting_year DESC, name");
   const options = await q(c, `SELECT profile_type, COALESCE(service, ?) AS service, reporting_year, authority_profile, template_name, structure, COUNT(DISTINCT authority_id) AS authorities
-    FROM va_assessments WHERE shared = 1 AND summary IS NOT NULL GROUP BY profile_type, LOWER(COALESCE(service, ?)), reporting_year, authority_profile, structure ORDER BY profile_type, reporting_year DESC`, DEFAULT_SERVICE, DEFAULT_SERVICE);
+    FROM va_assessments WHERE shared = 1 AND summary IS NOT NULL GROUP BY profile_type, COALESCE(service, ?), reporting_year, authority_profile, structure ORDER BY profile_type, reporting_year DESC`, DEFAULT_SERVICE, DEFAULT_SERVICE);
   return json({ benchmarks: rows.map((r) => publicBenchmark(r, true, true)), options });
 }
 

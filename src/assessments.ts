@@ -8,7 +8,7 @@ import type { Row, Stmt } from "./db";
 import { audit, exec, q } from "./db";
 import { VA_TYPE, fileName, storageDelete, storageGet, storagePut, storageText } from "./storage";
 import { FriendlyError, checkName, cleanText, excelDate, json, now, num, readJsonBody, safeParse, ukStamp } from "./util";
-import { cleanService } from "./services";
+import { listedService } from "./services";
 import { checkVaFile, encodeCp1252, headerValue, structureKey, vaRows } from "./vafile";
 
 export const ASSESSMENT_COLS = "id, authority_id, name, profile_type, reporting_year, authority_profile, template_id, template_name, service, structure, score, confidence, opportunity, answered_score, completeness, answered, factors, shared, version, bytes, created, created_by, updated, updated_by";
@@ -114,7 +114,7 @@ export async function handleAssessmentSave(c: Config, request: Request): Promise
   }
   const shared = b.shared === false || b.shared === 0 ? 0 : 1;
   const cols = [name, name.toLowerCase(), key, cleanText(String(b.profileType ?? summary?.type ?? ""), 100) || null, cleanText(String(b.reportingYear ?? summary?.year ?? ""), 20) || null,
-    cleanText(String(b.authorityProfile ?? summary?.authorityProfile ?? ""), 100) || null, templateId, cleanText(b.templateName, 150) || null, cleanService(headerValue(text, "Template Service")), structureKey(rows),
+    cleanText(String(b.authorityProfile ?? summary?.authorityProfile ?? ""), 100) || null, templateId, cleanText(b.templateName, 150) || null, await listedService(c, headerValue(text, "Template Service"), authorityId), structureKey(rows),
     summary?.totals?.score ?? null, summary?.totals?.conf ?? null, summary?.totals?.opp ?? null, summary?.answeredScore ?? null, summary?.completeness ?? null,
     summary?.answered ?? null, summary?.factorCount ?? null, shared, summary ? JSON.stringify(summary) : null, bytes.length];
   let newId = id, version = 1;
