@@ -462,9 +462,10 @@ body:has(.sum-strip) .toasts { bottom: 5.5rem; }
 .f-head .c-b, .f-row .c-b { display: none; }
 .sc.show-bench .f-head .c-b, .sc.show-bench .f-row .c-b { display: block; }
 /* row totals, as in the Excel tool: each factor's weighted share of its dimension's score and of the overall score */
-.sc.show-totals .f-head, .sc.show-totals .f-row { grid-template-columns: 3.2rem minmax(11rem, 1fr) 5.4rem minmax(9rem, 12.5rem) 4.6rem 4.6rem minmax(7.5rem, 10rem) minmax(7.5rem, 10rem) 4rem 5.2rem; }
-.sc.show-bench.show-totals .f-head, .sc.show-bench.show-totals .f-row { grid-template-columns: 3.2rem minmax(11rem, 1fr) 5.4rem minmax(9rem, 12.5rem) 4.2rem 4.6rem 4.6rem minmax(7.5rem, 10rem) minmax(7.5rem, 10rem) 4rem 5.2rem; }
-.f-head .c-t, .f-row .c-t { display: none; }
+/* they sit at the end of the row, after Notes */
+.sc.show-totals .f-head, .sc.show-totals .f-row { grid-template-columns: 3.2rem minmax(11rem, 1fr) 5.4rem minmax(9rem, 12.5rem) minmax(7.5rem, 10rem) minmax(7.5rem, 10rem) 4rem 5.2rem 4.6rem 4.6rem; }
+.sc.show-bench.show-totals .f-head, .sc.show-bench.show-totals .f-row { grid-template-columns: 3.2rem minmax(11rem, 1fr) 5.4rem minmax(9rem, 12.5rem) 4.2rem minmax(7.5rem, 10rem) minmax(7.5rem, 10rem) 4rem 5.2rem 4.6rem 4.6rem; }
+.f-head .c-t, .f-row .c-t { display: none; order: 1; }
 .sc.show-totals .f-head .c-t, .sc.show-totals .f-row .c-t { display: block; }
 .f-row .c-t { font-variant-numeric: tabular-nums; font-size: 0.9rem; }
 .f-row.f-total { display: none; background: var(--paper); font-weight: 700; border-top: 2px solid var(--haze); }

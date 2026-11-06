@@ -230,6 +230,12 @@ await test("row totals follow a changed answer, and hide again when unticked", (
   assert.ok(!sc().classList.contains("show-totals"));
   assert.equal(w.localStorage.getItem("va.rowTotals"), "0");
 });
+await test("row totals sit at the end of the row, after Notes", () => {
+  const css = html.replace(/\s+/g, " ");
+  assert.match(css, /\.f-head \.c-t, \.f-row \.c-t \{ display: none; order: 1; \}/);
+  for (const sel of ["\\.sc\\.show-totals \\.f-head, \\.sc\\.show-totals \\.f-row", "\\.sc\\.show-bench\\.show-totals \\.f-head, \\.sc\\.show-bench\\.show-totals \\.f-row"])
+    assert.match(css, new RegExp(`${sel} \\{ grid-template-columns: [^}]* 4rem 5\\.2rem 4\\.6rem 4\\.6rem; \\}`), "priority, notes, then the two totals");
+});
 await test("scores sit in the middle of their cells", () => {
   const css = html.replace(/\s+/g, " ");
   assert.match(css, /\.f-row select \{ text-align: center; text-align-last: center; \}/);
