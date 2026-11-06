@@ -10,6 +10,9 @@ const vc = new VirtualConsole();
 vc.on("jsdomError", (e) => errors.push(e.message));
 const dom = new JSDOM(html, { url: "https://value-analyser.fhrg.co.uk/", runScripts: "dangerously", pretendToBeVisual: true, virtualConsole: vc });
 const w = dom.window;
+// jsdom has no modal dialogs: stand them in, so a dialog opens and closes
+w.HTMLDialogElement.prototype.showModal ??= function () { this.setAttribute("open", ""); };
+w.HTMLDialogElement.prototype.close ??= function () { this.removeAttribute("open"); };
 await new Promise((r) => setTimeout(r, 400));
 const VA = w.eval("VA");
 
@@ -146,6 +149,25 @@ await test("the public page holds no real authority's data, and guidance for onl
 await test("the template names are clean", () => {
   const names = Array.from(w.eval("STARTERS")).flatMap((s) => Array.from(s.rows).map((r) => r[2]));
   assert.deepEqual(names.filter((n) => / \? /.test(n)), []);
+});
+await test("the sign-in card offers the Northbridge demonstration beside Sign in, as Clarion's does", async () => {
+  w.document.querySelector("dialog.ask[open] button[value=ok]")?.click();
+  w.location.hash = "/";
+  await wait(() => w.document.querySelector("#signout") && /Northbridge Value for Money 2025-26/.test(w.document.querySelector("#main").textContent), "the assessments");
+  w.document.querySelector("#signout").click();
+  await wait(() => w.document.querySelector("#signin"), "the sign-in card");
+  const card = w.document.querySelector(".auth-sign .auth-card");
+  assert.ok(card, "the framed card");
+  assert.ok(w.document.body.classList.contains("auth-page"), "the site's header and footer step aside");
+  const row = w.document.querySelector("#signin button[type=submit]").parentElement;
+  const demo = row.querySelector("#si-demo");
+  assert.equal(demo.getAttribute("href"), "/demo");
+  assert.match(demo.textContent, /Explore the Northbridge demonstration/);
+  assert.match(card.textContent, /Northbridge is a fictional authority/);
+  assert.match(card.textContent, /Forgotten your password\?/);
+  assert.ok(card.querySelector("img.auth-logo").getAttribute("src").startsWith("data:image/"));
+  w.location.hash = "/guidance";
+  await wait(() => !w.document.body.classList.contains("auth-page"), "the header to come back on another page");
 });
 dom.window.close();
 process.exit(failures ? 1 : 0);
