@@ -97,6 +97,25 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS va_services (id INTEGER PRIMARY KEY, scope_id INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL, name_key TEXT NOT NULL, created TEXT NOT NULL, created_by TEXT)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS va_services_name ON va_services (scope_id, name_key)`,
   `INSERT OR IGNORE INTO va_services (scope_id, name, name_key, created, created_by) VALUES (0, 'Highways', 'highways', '2026-11-06T00:00:00.000Z', 'toolkit')`,
+  // the organisation map: each authority's organisation, services, functions and processes, with their weights
+  `CREATE TABLE IF NOT EXISTS va_org_items (id INTEGER PRIMARY KEY, authority_id INTEGER NOT NULL, parent_id INTEGER, level TEXT NOT NULL, name TEXT NOT NULL,
+     std_key TEXT, service TEXT, weight REAL NOT NULL DEFAULT 100, sort INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, created_by TEXT, updated TEXT NOT NULL, updated_by TEXT)`,
+  `CREATE INDEX IF NOT EXISTS va_org_items_authority ON va_org_items (authority_id)`,
+  // a standard item (the organisation, Highways, the standard functions) is on an authority's map at most once
+  `CREATE UNIQUE INDEX IF NOT EXISTS va_org_items_standard ON va_org_items (authority_id, std_key) WHERE std_key IS NOT NULL`,
+  // property sheets: the facts (the FHRG's, scope 0, and each authority's own) and their values on each item
+  `CREATE TABLE IF NOT EXISTS va_properties (id INTEGER PRIMARY KEY, scope_id INTEGER NOT NULL DEFAULT 0, key TEXT NOT NULL, name TEXT NOT NULL, kind TEXT NOT NULL,
+     unit TEXT, choices TEXT, sort INTEGER NOT NULL DEFAULT 0, created TEXT NOT NULL, created_by TEXT)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS va_properties_key ON va_properties (scope_id, key)`,
+  `CREATE TABLE IF NOT EXISTS va_property_values (item_id INTEGER NOT NULL, property_id INTEGER NOT NULL, value TEXT NOT NULL, updated TEXT NOT NULL, updated_by TEXT,
+     PRIMARY KEY (item_id, property_id))`,
+  `INSERT OR IGNORE INTO va_properties (scope_id, key, name, kind, unit, choices, sort, created, created_by) VALUES (0, 'fhrg.revenue-budget', 'Revenue budget', 'money', '£ a year', NULL, 1, '2026-11-06T00:00:00.000Z', 'toolkit')`,
+  `INSERT OR IGNORE INTO va_properties (scope_id, key, name, kind, unit, choices, sort, created, created_by) VALUES (0, 'fhrg.capital-budget', 'Capital budget', 'money', '£ a year', NULL, 2, '2026-11-06T00:00:00.000Z', 'toolkit')`,
+  `INSERT OR IGNORE INTO va_properties (scope_id, key, name, kind, unit, choices, sort, created, created_by) VALUES (0, 'fhrg.staff', 'Staff', 'number', 'FTE', NULL, 3, '2026-11-06T00:00:00.000Z', 'toolkit')`,
+  `INSERT OR IGNORE INTO va_properties (scope_id, key, name, kind, unit, choices, sort, created, created_by) VALUES (0, 'fhrg.network-length', 'Network length', 'number', 'km', NULL, 4, '2026-11-06T00:00:00.000Z', 'toolkit')`,
+  `INSERT OR IGNORE INTO va_properties (scope_id, key, name, kind, unit, choices, sort, created, created_by) VALUES (0, 'fhrg.structures', 'Number of structures', 'number', NULL, NULL, 5, '2026-11-06T00:00:00.000Z', 'toolkit')`,
+  `INSERT OR IGNORE INTO va_properties (scope_id, key, name, kind, unit, choices, sort, created, created_by) VALUES (0, 'fhrg.street-lights', 'Number of street lights', 'number', NULL, NULL, 6, '2026-11-06T00:00:00.000Z', 'toolkit')`,
+  `INSERT OR IGNORE INTO va_properties (scope_id, key, name, kind, unit, choices, sort, created, created_by) VALUES (0, 'fhrg.delivery-model', 'Delivery model', 'choice', NULL, '["In-house","Outsourced","Mixed"]', 7, '2026-11-06T00:00:00.000Z', 'toolkit')`,
 ];
 
 export const MIGRATIONS = [

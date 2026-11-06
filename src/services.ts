@@ -16,6 +16,14 @@ export function cleanService(v: unknown): string {
   const s = String(v ?? "").replace(/[\\/:*?"<>|]/g, " ").replace(NOT_CP1252, " ").replace(/\s+/g, " ").trim().slice(0, 60);
   return s || DEFAULT_SERVICE;
 }
+// a service's name as someone typed it: refused, not quietly changed, when a file couldn't hold it
+export function checkServiceName(v: unknown): string {
+  const name = String(v ?? "").replace(/\s+/g, " ").trim();
+  if (name.length < 2 || name.length > 60) throw new FriendlyError("Give the service a name of 2 to 60 characters.", 400, "name");
+  if (PATH_CHARS.test(name) || /[\u0000-\u001f\u007f]/.test(name)) throw new FriendlyError('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, "name");
+  if (name.replace(NOT_CP1252, "") !== name) throw new FriendlyError("A service's name can only use letters, numbers and punctuation that the Excel tool's files can hold, so no emoji or symbols from other alphabets.", 400, "name");
+  return name;
+}
 // for comparing: services match whatever their capitals (worked out here, as the database only lowers A to Z)
 export const serviceKey = (v: unknown): string => cleanService(v).toLowerCase();
 
@@ -52,10 +60,7 @@ export async function handleServiceList(c: Config, request: Request): Promise<Re
 export async function handleServiceAdd(c: Config, request: Request): Promise<Response> {
   const me = await requireMe(c, request);
   const b = await readJsonBody(request);
-  const name = String(b.name ?? "").replace(/\s+/g, " ").trim();
-  if (name.length < 2 || name.length > 60) throw new FriendlyError("Give the service a name of 2 to 60 characters.", 400, "name");
-  if (PATH_CHARS.test(name) || /[\u0000-\u001f\u007f]/.test(name)) throw new FriendlyError('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, "name");
-  if (name.replace(NOT_CP1252, "") !== name) throw new FriendlyError("A service's name can only use letters, numbers and punctuation that the Excel tool's files can hold, so no emoji or symbols from other alphabets.", 400, "name");
+  const name = checkServiceName(b.name);
   if (b.scope === "fhrg" && !me.siteAdmin) throw new FriendlyError("Only the FHRG team can add to the FHRG's services. Add it for your authority instead.", 403);
   const scope = b.scope === "fhrg" ? 0 : me.authorityId;
   const key = name.toLowerCase();
