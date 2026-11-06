@@ -143,6 +143,7 @@ Tell Claude when you've done step 3, and it can check that the record has change
 - **Which level a template is for:** open the template, then tick the levels under **Where it can be used**.
 - **Services:** templates and assessments are for a service, Highways to start with. Add the FHRG's other services under **Admin → Templates → Services**. An authority can also add its own when it copies a template.
 - **A template for another service or level:** on the Templates page, choose **Copy**, pick the service and levels, and tick **Move it** to hide the original once the copy is saved. Check the list of names it changed, then tailor and save.
+- **The organisation map:** each authority's map starts itself the first time someone opens **Organisation**: the authority, a Highways service and the 15 standard highways functions. Anyone from the authority can add, rename, weight and reorder items and fill in their facts; only the lead, or whoever added an item, can remove it. The FHRG's seven standard facts are set in the toolkit; an authority adds its own on the map.
 - **The demonstration:** anyone can open `/demo` without an account. It uses Northbridge, a fictional authority, runs in the browser and saves nothing. To turn it off, add a variable `DEMO` set to `off` and click **Update Container**.
 
 ---

@@ -668,6 +668,171 @@ await test("FHRG administrators keep the list of services", async () => {
   set(role, "lead");
   await wait(() => w.document.querySelector(".nav [data-admin]").hidden, "the lead's view");
 });
+// ----- the organisation map
+const mapText = () => w.document.querySelector(".stage")?.textContent || "";
+const nodeNamed = (name) => [...w.document.querySelectorAll("[data-node]")].find((b) => b.querySelector(".nd-label").textContent === name);
+const shareOf = (name) => nodeNamed(name)?.querySelector(".bub-v").textContent;
+const hubName = () => w.document.querySelector("[data-hub] .hub-title")?.textContent;
+const openMap = async () => {
+  acceptLeave();
+  w.location.hash = "/map";
+  await wait(() => (acceptLeave(), w.document.querySelector(".stage [data-hub]")), "the map");
+  // back to the top, wherever an earlier test left it
+  w.document.querySelector("[data-crumb='0']").click();
+  await wait(() => hubName() === "Northbridge Council", "the organisation in the middle");
+};
+await test("the map has the organisation in the middle and its services around it, with their shares", async () => {
+  await openMap();
+  assert.ok(w.document.querySelector('.nav a[data-path="/map"]'), "it's in the navigation");
+  assert.deepEqual([...w.document.querySelectorAll("[data-node] .nd-label")].map((x) => x.textContent), ["Highways", "Transport"]);
+  assert.equal(shareOf("Highways"), "67%"); assert.equal(shareOf("Transport"), "33%");
+  assert.match(nodeNamed("Highways").textContent, /15 functions/);
+  assert.equal(w.document.querySelectorAll(".hub-ring path").length, 2, "the ring shows the two shares");
+  assert.ok(w.document.querySelector("[data-hub]").disabled, "nothing above the organisation");
+  assert.match(w.document.querySelector("#map-panel h2").textContent, /Northbridge Council/);
+  // a new service is offered from the same list as templates, less those already on the map
+  const offered = [...w.document.querySelectorAll("#map-svcs option")].map((o) => o.value);
+  assert.ok(offered.includes("Waste") && !offered.includes("Highways"), offered.join());
+});
+await test("opening a service shows its functions, and the middle goes back up", async () => {
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways", "Highways in the middle");
+  assert.equal(w.document.querySelectorAll("[data-node]").length, 15);
+  assert.equal(w.document.querySelectorAll(".hub-ring path").length, 15);
+  assert.deepEqual([...w.document.querySelectorAll(".map-crumbs button")].map((b) => b.textContent), ["Northbridge Council", "Highways"]);
+  // the functions' weightings add up to 950, so carriageways' 100 is about a tenth
+  assert.equal(shareOf("Carriageways"), "11%");
+  const total = [...w.document.querySelectorAll("[data-node] .bub-v")].reduce((a, x) => a + parseFloat(x.textContent), 0);
+  assert.ok(Math.abs(total - 100) <= 8, `shares add to about 100 (${total})`);
+  nodeNamed("Winter service").click();
+  await wait(() => hubName() === "Winter service", "the winter service's processes");
+  assert.deepEqual([...w.document.querySelectorAll("[data-node]")].map((b) => [b.querySelector(".nd-label").textContent, b.querySelector(".bub-v").textContent]),
+    [["Precautionary gritting", "57%"], ["Snow clearance", "29%"], ["Salt and grit bins", "14%"]]);
+  // a process is the last level: clicking one selects it rather than opening it
+  nodeNamed("Snow clearance").click();
+  await wait(() => /Snow clearance/.test(w.document.querySelector("#map-panel h2").textContent), "the process in the panel");
+  assert.equal(hubName(), "Winter service");
+  assert.equal(w.document.querySelector("#map-add"), w.document.querySelector("#map-add-name").form, "processes can be added here");
+  w.document.querySelector("[data-hub]").click();
+  await wait(() => hubName() === "Highways", "back to Highways");
+  w.document.querySelector("[data-hub]").click();
+  await wait(() => hubName() === "Northbridge Council", "back to the top");
+});
+await test("an item's weighting, name and facts are set in the panel beside the map", async () => {
+  await openMap();
+  nodeNamed("Transport").click();
+  await wait(() => hubName() === "Transport", "Transport in the middle");
+  // the item in the middle lists what's below it, with their weightings and shares
+  const kid = (name) => [...w.document.querySelectorAll(".kid-weights tbody tr")].find((r) => r.cells[0].textContent === name);
+  assert.equal(kid("Passenger transport").cells[2].textContent, "57%");
+  set(kid("Passenger transport").querySelector("select"), "25");
+  await wait(() => shareOf("Passenger transport") === "25%", "the new share");
+  assert.equal(shareOf("Transport planning"), "75%");
+  assert.equal(kid("Transport planning").cells[2].textContent, "75%");
+  // an item opened in the middle is set in the panel: its name, its weighting among its siblings, its facts
+  nodeNamed("Passenger transport").click();
+  await wait(() => hubName() === "Passenger transport", "the function in the middle");
+  assert.match(w.document.querySelector("#map-panel").textContent, /25% of Transport/);
+  set(w.document.querySelector("#mi-weight"), "100");
+  await wait(() => /57% of Transport/.test(w.document.querySelector("#map-panel").textContent), "the weighting back");
+  w.document.querySelector("#mi-name").value = "Bus services";
+  w.document.querySelector("#map-item").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await wait(() => hubName() === "Bus services", "the new name");
+  assert.match(w.document.querySelector(".map-crumbs").textContent, /Bus services/);
+  // facts: an amount is saved as a number and shown in pounds; a wrong one is refused and marked
+  const budget = () => [...w.document.querySelectorAll("[data-fact]")].find((x) => /Revenue budget/.test(w.document.querySelector(`label[for=${x.id}]`).textContent));
+  set(budget(), "1250000");
+  await wait(() => budget().value === "£1,250,000", "the amount in pounds");
+  const org = await demoCall("/api/org/get"), id = org.items.find((x) => x.name === "Bus services").id;
+  assert.equal(org.values[id][budget().dataset.fact], "1250000");
+  set(budget(), "lots");
+  await wait(() => budget().getAttribute("aria-invalid") === "true", "the refusal");
+  set(budget(), "");
+  await wait(() => budget().getAttribute("aria-invalid") === null, "the fact cleared");
+  assert.equal((await demoCall("/api/org/get")).values[id]?.[budget().dataset.fact], undefined);
+  const model = [...w.document.querySelectorAll("select[data-fact]")][0];
+  assert.deepEqual([...model.options].map((o) => o.value), ["", "In-house", "Outsourced", "Mixed"]);
+  // put it back for the tests that follow
+  w.document.querySelector("#mi-name").value = "Passenger transport";
+  w.document.querySelector("#map-item").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await wait(() => hubName() === "Passenger transport", "the name back");
+});
+await test("items are added and removed, and removing one with others below it asks first", async () => {
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways", "Highways");
+  const add = (name) => { w.document.querySelector("#map-add-name").value = name; w.document.querySelector("#map-add").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true })); };
+  add("<i>Fleet</i> & depots");
+  await wait(() => nodeNamed("<i>Fleet</i> & depots"), "the new function");
+  assert.equal(w.document.querySelector(".stage i"), null, "a name is shown as text, never as markup");
+  assert.match(w.document.querySelector("#map-panel h2").textContent, /Fleet/, "the new item is selected");
+  nodeNamed("<i>Fleet</i> & depots").click();
+  await wait(() => hubName() === "<i>Fleet</i> & depots", "the new function in the middle");
+  add("Vehicle servicing");
+  await wait(() => nodeNamed("Vehicle servicing"), "a process below it");
+  w.document.querySelector("[data-hub]").click();
+  await wait(() => hubName() === "Highways", "back to Highways");
+  // going back up keeps it selected, so it can be removed from here
+  assert.match(w.document.querySelector("#map-panel h2").textContent, /Fleet/);
+  assert.ok(nodeNamed("<i>Fleet</i> & depots").classList.contains("sel"));
+  w.document.querySelector("#mi-remove").click();
+  await wait(() => /Remove <i>Fleet/.test(w.document.querySelector("dialog.ask[open] h2")?.textContent || ""), "the first question");
+  w.document.querySelector("dialog.ask[open] button[value=ok]").click();
+  await wait(() => /Remove everything below it too/.test(w.document.querySelector("dialog.ask[open] h2")?.textContent || ""), "the second question");
+  assert.match(w.document.querySelector("dialog.ask[open]").textContent, /1 item below it/);
+  w.document.querySelector("dialog.ask[open] button[value=ok]").click();
+  await wait(() => hubName() === "Highways" && !nodeNamed("<i>Fleet</i> & depots"), "it and its process to go");
+  assert.equal(w.document.querySelectorAll("[data-node]").length, 15);
+  assert.ok(!(await demoCall("/api/org/get")).items.some((x) => x.name === "Vehicle servicing"));
+});
+await test("an authority adds facts of its own to its property sheets", async () => {
+  await openMap();
+  const f = w.document.querySelector("#fact-add");
+  f.querySelector("#fa-name").value = "Depots";
+  f.querySelector("#fa-kind").value = "number";
+  f.dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await wait(() => /Depots/.test(w.document.querySelector(".facts-sheet").textContent), "the new fact");
+  const label = [...w.document.querySelectorAll(".fact label")].find((l) => /Depots/.test(l.textContent));
+  assert.match(label.textContent, /your own/);
+  assert.equal(w.document.querySelectorAll(".fact label .chip").length, 1, "the FHRG's facts aren't marked as your own");
+});
+await test("circles round the middle keep apart, however uneven the shares", async () => {
+  // where the circles are drawn, with the stage's height (720 to its 1,000 width, or square for many) taken into account
+  const least = () => {
+    const pts = [...w.document.querySelectorAll("[data-node]")].map((b) => ({ x: parseFloat(b.style.left), y: parseFloat(b.style.top) }));
+    const high = w.document.querySelector(".stage").classList.contains("tall") ? 1 : 0.72;
+    let d = Infinity;
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) d = Math.min(d, Math.hypot(pts[i].x - pts[j].x, (pts[i].y - pts[j].y) * high));
+    return d;
+  };
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways", "Highways");
+  assert.ok(least() > 9, `15 functions ${least().toFixed(1)} apart`);
+  // one big share and several tiny ones: the small circles are spread out rather than bunched in the big one's gap
+  const org = await demoCall("/api/org/get"), drainage = org.items.find((x) => x.name === "Drainage");
+  const added = [];
+  for (const [name, weight] of [["Gully cleansing", 100], ["Culverts", 0], ["Soakaways", 0], ["Flood response", 0], ["Ditches", 0]]) {
+    const r = await demoCall("/api/org/item", { action: "add", parentId: drainage.id, name });
+    await demoCall("/api/org/item", { action: "weight", id: r.id, weight });
+    added.push(r.id);
+  }
+  // they were added behind the page's back, so open the map afresh
+  w.location.hash = "/guidance";
+  await wait(() => !w.document.querySelector(".stage"), "another page");
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways", "Highways");
+  nodeNamed("Drainage").click();
+  await wait(() => hubName() === "Drainage" && w.document.querySelectorAll("[data-node]").length === 5, "the drainage processes");
+  assert.ok(least() > 14, `uneven shares ${least().toFixed(1)} apart`);
+  assert.equal(w.document.querySelectorAll(".hub-ring path").length, 1, "only shares that count are drawn on the ring");
+  assert.equal(shareOf("Gully cleansing"), "100%"); assert.equal(shareOf("Culverts"), "0%");
+  for (const id of added) await demoCall("/api/org/item", { action: "remove", id });
+  w.document.querySelector("[data-hub]").click();
+  await wait(() => hubName() === "Highways", "back to Highways");
+});
 await test("the sign-in card offers the Northbridge demonstration beside Sign in, as Clarion's does", async () => {
   // an earlier test may leave unsaved changes: say yes to leaving them
   const leave = () => w.document.querySelector("dialog.ask[open] button[value=ok]")?.click();

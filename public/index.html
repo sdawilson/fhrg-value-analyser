@@ -158,6 +158,58 @@ main:focus { outline: none; }
 @media (max-width: 820px) { .grid-2 { grid-template-columns: 1fr; } }
 
 /* sign in / register */
+/* the organisation map, in Clarion's manner: equal circles, the shares in a ring round the middle */
+.wrap.page.map-page { max-width: 100rem; }
+.map-split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(18rem, 24rem); gap: 1.25rem; align-items: start; }
+@media (max-width: 1199px) { .map-split { grid-template-columns: 1fr; } }
+.map-main { display: grid; gap: 0.75rem; min-width: 0; }
+.map-panel { background: var(--white); border: 1px solid var(--haze); border-radius: var(--radius); padding: 1rem 1.1rem; }
+.map-panel h2 { margin: 0 0 0.6rem; font-size: 1.25rem; }
+.map-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 4px; margin: 0 0 0.9rem; padding: 0; list-style: none; font-size: 0.92rem; }
+.map-crumbs li { display: inline-flex; align-items: center; gap: 4px; } .map-crumbs li + li::before { content: "\203A"; color: var(--ink-soft); }
+.map-crumbs button { min-height: 32px; padding: 4px 6px; border: 0; background: none; color: var(--navy); text-decoration: underline; cursor: pointer; font: inherit; }
+.map-crumbs button[aria-current="page"] { color: var(--ink); font-weight: 700; text-decoration: none; }
+.stage-box { container-type: inline-size; container-name: stage; background: var(--white); border: 1px solid var(--haze); border-radius: var(--radius); padding: 8px; overflow-x: clip; }
+.stage { position: relative; aspect-ratio: 1000 / 720; }
+/* many circles need a rounder ring, so the ones at the top and bottom have room for their labels */
+.stage.tall { aspect-ratio: 1; }
+.stage-empty { position: absolute; left: 50%; top: 82%; transform: translateX(-50%); margin: 0; }
+.wires { position: absolute; inset: 0; width: 100%; height: 100%; } .wires path { fill: none; stroke: var(--haze); stroke-width: 1.5px; vector-effect: non-scaling-stroke; }
+.hub-wrap { position: absolute; left: 50%; top: 50%; width: 196px; height: 196px; transform: translate(-50%, -50%); display: grid; place-items: center; }
+.hub-ring { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; } .hub-ring path { fill: none; stroke-width: 7; }
+.hub-ring .ring-a { stroke: var(--navy); } .hub-ring .ring-b { stroke: #7a8da2; }
+.hub { position: relative; width: 168px; height: 168px; border-radius: 50%; display: grid; place-content: center; justify-items: center; gap: 2px; padding: 14px; border: 0; text-align: center; background: var(--navy-deep); color: #fff; cursor: pointer; font: inherit; }
+.hub:disabled { cursor: default; } .hub:not(:disabled):hover { box-shadow: 0 0 0 4px var(--n50); }
+.hub-title { font-weight: 800; font-size: 1rem; line-height: 1.15; } .hub-line { font-size: 0.8rem; line-height: 1.2; opacity: 0.9; }
+.nd { --d: 62px; --lw: clamp(70px, calc(17cqw - 40px), 130px); --lv: clamp(84px, 12cqw, 124px); position: absolute; display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0; border: 0; border-radius: 10px; background: none; color: var(--ink); cursor: pointer; font: inherit; }
+.nd.right { width: calc(var(--d) + 8px + var(--lw)); transform: translate(calc(var(--d) / -2), -50%); text-align: left; }
+.nd.left { width: calc(var(--d) + 8px + var(--lw)); flex-direction: row-reverse; transform: translate(calc(var(--d) / 2 - 100%), -50%); text-align: right; }
+.nd.above { width: var(--lv); flex-direction: column-reverse; gap: 4px; transform: translate(-50%, calc(var(--d) / 2 - 100%)); text-align: center; }
+.nd.below { width: var(--lv); flex-direction: column; gap: 4px; transform: translate(-50%, calc(var(--d) / -2)); text-align: center; }
+.nd-text { display: grid; gap: 2px; min-width: 0; justify-items: start; } .nd.left .nd-text { justify-items: end; } .nd.above .nd-text, .nd.below .nd-text { justify-items: center; }
+.nd:hover .nd-label { text-decoration: underline; }
+.bub { position: relative; flex: none; width: var(--d); height: var(--d); border-radius: 50%; display: grid; place-content: center; font-weight: 800; font-size: 0.98rem; background: var(--white); color: var(--navy-deep); box-shadow: 0 0 0 1.5px var(--mist); }
+.lv-service .bub { background: #e6eef6; box-shadow: 0 0 0 1.5px var(--navy); } .lv-process .bub { background: var(--paper); }
+.nd.sel .bub { box-shadow: 0 0 0 3px var(--navy); }
+.nd-label { font-weight: 700; font-size: 0.88rem; line-height: 1.15; } .nd-sub { font-size: 0.76rem; line-height: 1.15; color: var(--ink-soft); }
+.map-add input { max-width: 22rem; }
+.kid-weights { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+.kid-weights th, .kid-weights td { padding: 0.3rem 0.35rem; border-bottom: 1px solid var(--haze); text-align: left; vertical-align: middle; }
+.kid-weights .num { text-align: right; white-space: nowrap; } .kid-weights select { padding: 0.2rem 0.4rem; }
+.facts-sheet { display: grid; gap: 0.55rem; } .fact { display: grid; gap: 0.2rem; } .fact label { font-size: 0.88rem; font-weight: 600; }
+.fact input, .fact select { padding: 0.4rem 0.55rem; }
+.fact-add { margin-top: 1rem; } .fact-add summary { cursor: pointer; font-weight: 700; color: var(--navy-deep); }
+@container stage (max-width: 860px) {
+  .hub-wrap { width: 168px; height: 168px; } .hub { width: 142px; height: 142px; padding: 10px; } .hub-title { font-size: 0.92rem; }
+  .nd { --d: 54px; } .nd-label { font-size: 0.8rem; } .bub { font-size: 0.9rem; }
+}
+@container stage (max-width: 600px) {
+  .stage, .stage.tall { aspect-ratio: auto; display: grid; gap: 8px; } .wires, .stage-empty { display: none; } .nd { --d: 46px; }
+  .hub-wrap { position: static; transform: none; width: auto; height: auto; display: block; } .hub-ring { display: none; }
+  .hub { width: 100%; height: auto; border-radius: var(--radius); padding: 12px; }
+  .nd, .nd.left, .nd.right, .nd.above, .nd.below { position: static; transform: none; width: auto; flex-direction: row; gap: 12px; text-align: left; }
+  .nd .nd-text, .nd.left .nd-text, .nd.above .nd-text, .nd.below .nd-text { justify-items: start; }
+}
 /* sign in: the FHRG tools' framed card, as in Clarion */
 body.auth-page { background: var(--paper); }
 body.auth-page .site-head, body.auth-page .site-foot { display: none; }
@@ -714,6 +766,7 @@ select.pending { border-color: #c98f16; border-style: dashed; }
     <button class="btn secondary small menu-toggle" type="button" aria-expanded="false" aria-controls="nav" hidden>Menu</button>
     <nav class="nav" id="nav" aria-label="Main" hidden>
       <a href="/" data-nav data-path="/">Assessments</a>
+      <a href="/map" data-nav data-path="/map">Organisation</a>
       <a href="/compare" data-nav data-path="/compare">Compare</a>
       <a href="/templates" data-nav data-path="/templates">Templates</a>
       <a href="/benchmarks" data-nav data-path="/benchmarks">Benchmarks</a>
@@ -734,6 +787,7 @@ select.pending { border-color: #c98f16; border-style: dashed; }
     <nav aria-label="Footer">
       <ul>
         <li><a href="/" data-nav data-path="/">Assessments</a></li>
+        <li><a href="/map" data-nav data-path="/map">Organisation</a></li>
         <li><a href="/compare" data-nav data-path="/compare">Compare</a></li>
         <li><a href="/templates" data-nav data-path="/templates">Templates</a></li>
         <li><a href="/benchmarks" data-nav data-path="/benchmarks">Benchmarks</a></li>
@@ -1798,6 +1852,46 @@ const Demo = (() => {
     // the FHRG's standard services (the live toolkit starts with Highways; the FHRG adds the rest)
     services: [{ id: 1, scope_id: 0, name: "Highways" }, { id: 2, scope_id: 0, name: "Transport" }, { id: 3, scope_id: 0, name: "Waste" }] };
   const svcOf = (x) => String((x && x.service) || "").trim() || VA.DEFAULT_SERVICE;
+  // the organisation map: the FHRG's standard facts, and each authority's items and values
+  S.props = [["fhrg.revenue-budget", "Revenue budget", "money", "£ a year"], ["fhrg.capital-budget", "Capital budget", "money", "£ a year"], ["fhrg.staff", "Staff", "number", "FTE"],
+    ["fhrg.network-length", "Network length", "number", "km"], ["fhrg.structures", "Number of structures", "number", ""], ["fhrg.street-lights", "Number of street lights", "number", ""],
+    ["fhrg.delivery-model", "Delivery model", "choice", "", ["In-house", "Outsourced", "Mixed"]]].map(([key, name, kind, unit, choices], i) => ({ id: i + 1, scope_id: 0, key, name, kind, unit, choices: choices || [] }));
+  S.orgItems = []; S.orgValues = {};
+  const STD_FUNCTIONS = [["hw.asset-management", "Asset management and strategy"], ["hw.carriageways", "Carriageways"], ["hw.footways", "Footways and cycleways"], ["hw.drainage", "Drainage"],
+    ["hw.structures", "Structures"], ["hw.street-lighting", "Street lighting and illuminated signs"], ["hw.traffic-signals", "Traffic signals and ITS"], ["hw.winter", "Winter service"],
+    ["hw.inspections", "Safety inspections and reactive repairs"], ["hw.network-management", "Network management and street works"], ["hw.road-safety", "Road safety"],
+    ["hw.rights-of-way", "Public rights of way"], ["hw.verges", "Verges, trees and grass cutting"], ["hw.design", "Highway design and capital schemes"], ["hw.development", "Development management"]];
+  function orgAdd(aid, parent_id, level, name, over = {}) {
+    const it = { id: S.nextId++, authority_id: aid, parent_id, level, name, std_key: null, service: level === "service" ? name : undefined, weight: 100,
+      sort: S.orgItems.filter((x) => x.parent_id === parent_id && parent_id !== null).length, created_by: S.me ? S.me.email : ME_BASE.email, updated: nowIso(0), updated_by: S.me ? S.me.email : ME_BASE.email, ...over };
+    S.orgItems.push(it);
+    return it;
+  }
+  function orgSeed(aid) {
+    if (S.orgItems.some((x) => x.authority_id === aid)) return;
+    const root = orgAdd(aid, null, "organisation", authorityName(aid) || "Our organisation", { std_key: "org" });
+    const hw = orgAdd(aid, root.id, "service", VA.DEFAULT_SERVICE, { std_key: "svc.highways" });
+    STD_FUNCTIONS.forEach(([key, name]) => orgAdd(aid, hw.id, "function", name, { std_key: key }));
+    if (aid !== 1) return;
+    // Northbridge, as the demonstration shows it: a second service, some weights, processes and facts
+    const w = { "hw.carriageways": 100, "hw.winter": 100, "hw.inspections": 100, "hw.footways": 75, "hw.drainage": 75, "hw.structures": 75, "hw.asset-management": 75, "hw.network-management": 75,
+      "hw.street-lighting": 50, "hw.traffic-signals": 50, "hw.road-safety": 50, "hw.design": 50, "hw.rights-of-way": 25, "hw.verges": 25, "hw.development": 25 };
+    S.orgItems.forEach((x) => { if (x.authority_id === aid && w[x.std_key] !== undefined) x.weight = w[x.std_key]; });
+    const tr = orgAdd(aid, root.id, "service", "Transport", { weight: 50 });
+    orgAdd(aid, tr.id, "function", "Passenger transport"); orgAdd(aid, tr.id, "function", "Transport planning", { weight: 75 });
+    const winter = S.orgItems.find((x) => x.authority_id === aid && x.std_key === "hw.winter");
+    orgAdd(aid, winter.id, "process", "Precautionary gritting"); orgAdd(aid, winter.id, "process", "Snow clearance", { weight: 50 }); orgAdd(aid, winter.id, "process", "Salt and grit bins", { weight: 25 });
+    const facts = (it, list) => { S.orgValues[it.id] = Object.fromEntries(list.map(([k, v]) => [S.props.find((p) => p.key === k).id, String(v)])); };
+    facts(hw, [["fhrg.revenue-budget", 24500000], ["fhrg.capital-budget", 31000000], ["fhrg.staff", 186], ["fhrg.network-length", 2140], ["fhrg.structures", 412], ["fhrg.street-lights", 38600], ["fhrg.delivery-model", "Mixed"]]);
+    facts(tr, [["fhrg.revenue-budget", 6200000], ["fhrg.staff", 41], ["fhrg.delivery-model", "Outsourced"]]);
+    facts(S.orgItems.find((x) => x.authority_id === aid && x.std_key === "hw.carriageways"), [["fhrg.revenue-budget", 7800000], ["fhrg.capital-budget", 18500000], ["fhrg.network-length", 2140]]);
+    facts(winter, [["fhrg.revenue-budget", 2100000], ["fhrg.staff", 34]]);
+  }
+  const orgOf = (aid) => ({ authority: authorityName(aid), items: S.orgItems.filter((x) => x.authority_id === aid).map((x) => ({ ...x })),
+    properties: S.props.filter((p) => p.scope_id === 0 || p.scope_id === aid).map((p) => ({ id: p.id, fhrg: p.scope_id === 0, key: p.key, name: p.name, kind: p.kind, unit: p.unit, choices: [...p.choices] })),
+    values: Object.fromEntries(Object.entries(S.orgValues).filter(([id]) => S.orgItems.some((x) => x.id === Number(id) && x.authority_id === aid)).map(([id, v]) => [id, { ...v }])) });
+  const orgItem = (aid, id) => { const it = S.orgItems.find((x) => x.id === Number(id)); if (!it || it.authority_id !== aid) fail("That isn't on your map. It may have been removed.", 404); return it; };
+  const itemName = (v) => { const s = String(v ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim(); if (s.length < 2 || s.length > 80) fail("Give it a name of 2 to 80 characters.", 400, { field: "name" }); return s; };
 
   function docFromStarter(st) {
     const d = VA.blankDoc();
@@ -1964,6 +2058,73 @@ const Demo = (() => {
         t.visible = !hide;
         log(hide ? "va-hide-template" : "va-show-template", { name: t.name });
         return { ok: true, visible: t.visible };
+      }
+      case "/api/org/get": { const aid = S.me.siteAdmin && Number(b.authorityId) ? Number(b.authorityId) : S.me.authorityId; orgSeed(aid); return orgOf(aid); }
+      case "/api/org/item": {
+        const aid = S.me.siteAdmin && Number(b.authorityId) ? Number(b.authorityId) : S.me.authorityId, below = { organisation: "service", service: "function", function: "process" };
+        if (b.action === "add") {
+          const parent = orgItem(aid, b.parentId), level = below[parent.level];
+          if (!level) fail("Processes are the last level of the map, so nothing goes below one.");
+          let name = itemName(b.name);
+          if (level === "service") {
+            if (/[\\/:*?"<>|]/.test(name)) fail('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, { field: "name" });
+            const found = S.services.find((s) => s.name.toLowerCase() === name.toLowerCase() && (s.scope_id === 0 || s.scope_id === aid));
+            if (found) name = found.name; else S.services.push({ id: S.nextId++, scope_id: aid, name });
+          }
+          return { ok: true, id: orgAdd(aid, parent.id, level, name).id };
+        }
+        const it = orgItem(aid, b.id);
+        if (b.action === "rename") {
+          let name = itemName(b.name);
+          if (it.level === "service") {
+            if (/[\\/:*?"<>|]/.test(name)) fail('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, { field: "name" });
+            const found = S.services.find((s) => s.name.toLowerCase() === name.toLowerCase() && (s.scope_id === 0 || s.scope_id === aid));
+            if (found) name = found.name; else S.services.push({ id: S.nextId++, scope_id: aid, name });
+            it.service = name;
+          }
+          it.name = name;
+          return { ok: true };
+        }
+        if (b.action === "weight") { const w = Number(b.weight); if (!Number.isFinite(w) || w < 0 || w > 100) fail("A weighting is a number from 0 to 100.", 400, { field: "weight" }); it.weight = w; return { ok: true }; }
+        if (b.action === "move") {
+          if (!it.parent_id) fail("The organisation stays in the middle.");
+          const sibs = S.orgItems.filter((x) => x.parent_id === it.parent_id).sort((x, y) => x.sort - y.sort || x.id - y.id), i = sibs.indexOf(it), j = i + (Number(b.dir) < 0 ? -1 : 1);
+          if (j >= 0 && j < sibs.length) { [sibs[i], sibs[j]] = [sibs[j], sibs[i]]; sibs.forEach((x, k) => (x.sort = k)); }
+          return { ok: true };
+        }
+        if (b.action === "remove") {
+          if (!it.parent_id) fail("The organisation can't be removed.");
+          if (!S.me.siteAdmin && S.me.role !== "lead" && it.created_by !== S.me.email) fail("Only your authority's lead, or whoever added it, can remove this.", 403);
+          const gone = new Set([it.id]);
+          for (let grew = true; grew; ) { grew = false; for (const x of S.orgItems) if (!gone.has(x.id) && gone.has(x.parent_id)) { gone.add(x.id); grew = true; } }
+          if (gone.size > 1 && !b.withEverything) fail(`${it.name} has ${gone.size - 1} item${gone.size === 2 ? "" : "s"} below it.`, 409, { below: gone.size - 1 });
+          if (!S.me.siteAdmin && S.me.role !== "lead" && S.orgItems.some((x) => gone.has(x.id) && x.created_by !== S.me.email)) fail("Someone else added items below this, so only your authority's lead can remove it.", 403);
+          S.orgItems = S.orgItems.filter((x) => !gone.has(x.id)); gone.forEach((id) => delete S.orgValues[id]);
+          return { ok: true, removed: gone.size };
+        }
+        fail("Unknown action.");
+      }
+      case "/api/org/fact": {
+        const aid = S.me.siteAdmin && Number(b.authorityId) ? Number(b.authorityId) : S.me.authorityId, it = orgItem(aid, b.itemId);
+        const p = S.props.find((x) => x.id === Number(b.propertyId) && (x.scope_id === 0 || x.scope_id === aid));
+        if (!p) fail("That fact isn't available.", 404);
+        let v = String(b.value ?? "").replace(/\s+/g, " ").trim();
+        if (v && (p.kind === "money" || p.kind === "number")) { const n = Number(v.replace(/[£,\s]/g, "")); if (!Number.isFinite(n) || n < 0) fail(p.kind === "money" ? "Give an amount in pounds, such as 2,500,000." : "Give a number, such as 120.", 400, { field: "value" }); v = String(Math.round(n * 100) / 100); }
+        else if (v && p.kind === "choice") { const hit = p.choices.find((x) => x.toLowerCase() === v.toLowerCase()); if (!hit) fail(`Choose one of: ${p.choices.join(", ")}.`, 400, { field: "value" }); v = hit; }
+        if (v) (S.orgValues[it.id] ||= {})[p.id] = v; else if (S.orgValues[it.id]) delete S.orgValues[it.id][p.id];
+        return { ok: true, value: v };
+      }
+      case "/api/org/fact-add": {
+        const aid = S.me.siteAdmin && Number(b.authorityId) ? Number(b.authorityId) : S.me.authorityId;
+        const name = String(b.name || "").replace(/\s+/g, " ").trim();
+        if (name.length < 2 || name.length > 60) fail("Give the fact a name of 2 to 60 characters.", 400, { field: "name" });
+        if (S.props.some((p) => (p.scope_id === 0 || p.scope_id === aid) && p.name.toLowerCase() === name.toLowerCase())) fail("There's already a fact with that name.", 409, { field: "name" });
+        const kind = ["money", "number", "text", "choice"].includes(b.kind) ? b.kind : "text";
+        const choices = kind === "choice" ? [...new Set(String(b.choices || "").split(",").map((x) => x.trim()).filter(Boolean))] : [];
+        if (kind === "choice" && choices.length < 2) fail("Give at least two choices, separated by commas.", 400, { field: "choices" });
+        const p = { id: S.nextId++, scope_id: aid, key: `own.${S.nextId}`, name, kind, unit: String(b.unit || "").trim().slice(0, 20), choices };
+        S.props.push(p);
+        return { ok: true, id: p.id };
       }
       case "/api/services/list": {
         const all = !!b.all && S.me.siteAdmin;
@@ -2761,6 +2922,7 @@ const ROUTES = [
   [/^\/a\/(local|\d+)(?:\/(scorecard|profile|report|benchmark))?$/, (m) => pageWorkspace(m[1], m[2] || "scorecard")],
   [/^\/compare$/, (m, q) => pageCompare(q)],
   [/^\/templates$/, () => pageTemplates()],
+  [/^\/map$/, () => pageMap()],
   [/^\/templates\/(new|local|\d+)$/, (m, q) => pageTemplateEditor(m[1], q)],
   [/^\/benchmarks$/, () => pageBenchmarks()],
   [/^\/benchmarks\/(\d+)$/, (m) => pageBenchmark(Number(m[1]))],
@@ -4172,6 +4334,208 @@ async function drawCompare(ids, list) {
 }
 
 // ------------------------------------------------------------- the template library
+// ------------------------------------------------------------- the organisation map
+// As in Clarion: one level at a time, the item in the middle and what's below it around it, every circle the same
+// size with its share among its siblings, and a ring round the middle showing the shares. Clicking a circle opens
+// it; clicking the middle goes back up. The panel beside it holds the item's details and its property sheet.
+const BELOW = { organisation: "service", service: "function", function: "process" };
+const LEVEL_WORD = { organisation: "Organisation", service: "Service", function: "Function", process: "Process" };
+const PLURAL = { service: "services", function: "functions", process: "processes" };
+const mapState = { path: [], sel: null };
+function aroundHub(n, rx, ry) {
+  const start = n === 2 ? 180 : -90;
+  return Array.from({ length: n }, (_, i) => {
+    const a = ((start + (360 * i) / n) * Math.PI) / 180, up = Math.sin(a), over = Math.cos(a);
+    return { x: +(50 + rx * over).toFixed(2), y: +(50 + ry * up).toFixed(2), side: up < -0.8 ? "above" : up > 0.8 ? "below" : over >= 0 ? "right" : "left" };
+  });
+}
+// each circle sits beside its stretch of the ring, the first at the top; small shares are spread out so circles
+// and labels don't run together
+function placeAround(shares, rx, ry) {
+  const total = shares.reduce((x, y) => x + y, 0), n = shares.length;
+  if (!total) return { pts: aroundHub(n, rx, ry), arcs: [] };
+  let at = (-shares[0] / total) * 180;
+  const arcs = [], angles = shares.map((s) => {
+    const sweep = (s / total) * 360, mid = at + sweep / 2;
+    if (sweep) arcs.push({ from: at, sweep });
+    at += sweep;
+    return mid;
+  });
+  // the first stays at the top; the rest keep their order and are kept at least a gap apart, each run of circles
+  // that would crowd together centred on where its shares would put it
+  const gap = (360 / n) * (n > 8 ? 0.98 : 0.72), lo = gap, hi = 360 - gap, runs = [];
+  for (let i = 1; i < n; i++) {
+    runs.push({ sum: angles[i], k: 1 });
+    for (;;) {
+      const c = runs.at(-1), prev = runs.at(-2);
+      c.at = Math.min(Math.max(c.sum / c.k - ((c.k - 1) * gap) / 2, lo), hi - (c.k - 1) * gap);
+      if (!prev || prev.at + prev.k * gap <= c.at + 1e-9) break;
+      prev.sum += c.sum; prev.k += c.k; runs.pop();
+    }
+  }
+  let i = 1;
+  for (const r of runs) for (let t = 0; t < r.k; t++) angles[i++] = r.at + t * gap;
+  angles[0] = 0;
+  // labels go beside their circles, except at the very top and bottom; with many circles, only the one nearest
+  const edge = n > 8 ? 0.96 : 0.8;
+  const pts = angles.map((deg) => {
+    const r = (deg * Math.PI) / 180, a = Math.atan2(-Math.cos(r) / (ry * 0.82), Math.sin(r) / rx), up = Math.sin(a), over = Math.cos(a);
+    return { x: +(50 + rx * over).toFixed(2), y: +(50 + ry * up).toFixed(2), side: up < -edge ? "above" : up > edge ? "below" : over >= 0 ? "right" : "left" };
+  });
+  return { pts, arcs };
+}
+function ringArc({ from, sweep }) {
+  const r = 96, pad = sweep >= 359.9 ? 0 : Math.min(1, sweep / 4), run = Math.min(sweep, 359.9) - pad * 2;
+  const at = (deg) => { const t = (deg * Math.PI) / 180; return `${(100 + r * Math.sin(t)).toFixed(2)} ${(100 - r * Math.cos(t)).toFixed(2)}`; };
+  return `M${at(from + pad)}A${r} ${r} 0 ${run > 180 ? 1 : 0} 1 ${at(from + pad + run)}`;
+}
+const mapWeights = (w) => [...new Set([...WEIGHTS, w])].sort((a, z) => z - a).map((x) => `<option value="${x}" ${x === w ? "selected" : ""}>${x}</option>`).join("");
+const owner = (name) => `${name}${/s$/i.test(name) ? "'" : "'s"}`;
+const factValue = (p, v) => (v === undefined || v === "" ? "" : p.kind === "money" ? `£${Number(v).toLocaleString("en-GB")}` : p.kind === "number" ? Number(v).toLocaleString("en-GB") : v);
+
+async function pageMap() {
+  setTitle("Organisation");
+  main().innerHTML = `<div class="wrap page"><p class="muted">Drawing the map…</p></div>`;
+  try { A.org = await api("/api/org/get"); await services(); }
+  catch (e) { main().innerHTML = page("Organisation", `<div class="notice error"><p>${esc(e.message)}</p></div>`); return; }
+  drawMap();
+}
+async function reloadMap(msg) {
+  try { A.org = await api("/api/org/get"); await services(); drawMap(); if (msg) toast(msg); } catch (e) { fail(e); }
+}
+function drawMap() {
+  const d = A.org, items = d.items, byId = new Map(items.map((x) => [x.id, x]));
+  const kids = (id) => items.filter((x) => x.parent_id === id).sort((a, z) => a.sort - z.sort || a.id - z.id);
+  const root = items.find((x) => x.level === "organisation");
+  // the trail from the organisation to the item in the middle, kept to what's still on the map
+  const path = [];
+  for (const id of mapState.path) { const it = byId.get(id), up = path.length ? path.at(-1) : root.id; if (!it || it.parent_id !== up || !BELOW[it.level]) break; path.push(id); }
+  mapState.path = path;
+  const trail = [root, ...path.map((id) => byId.get(id))], hub = trail.at(-1), children = kids(hub.id);
+  const sel = byId.get(mapState.sel) && (mapState.sel === hub.id || byId.get(mapState.sel).parent_id === hub.id) ? byId.get(mapState.sel) : hub;
+  mapState.sel = sel.id;
+  const weightOf = (x) => (x.weight > 0 ? x.weight : 0);
+  const shareIn = (x) => { const sibs = x.parent_id ? kids(x.parent_id) : [x], tot = sibs.reduce((a, y) => a + weightOf(y), 0); return tot ? weightOf(x) / tot : 0; };
+  const { pts, arcs } = placeAround(children.map(weightOf), 33, 37);
+  const below = BELOW[hub.level], subOf = (x) => { const n = kids(x.id).length, b = BELOW[x.level]; return b && n ? plural(n, b === "process" ? "process" : b, PLURAL[b]) : ""; };
+  const nodes = children.map((x, i) => `<button type="button" class="nd ${pts[i].side} lv-${x.level} ${x.id === sel.id ? "sel" : ""}" style="left:${pts[i].x}%;top:${pts[i].y}%" data-node="${x.id}"
+      aria-label="${esc(`${x.name}: ${pct(shareIn(x))} of ${hub.name}. ${BELOW[x.level] ? "Open" : "Select"}`)}">
+      <span class="bub"><span class="bub-v">${pct(shareIn(x))}</span></span>
+      <span class="nd-text"><span class="nd-label">${esc(x.name)}</span>${subOf(x) ? `<span class="nd-sub">${esc(subOf(x))}</span>` : ""}</span></button>`).join("");
+  const ring = arcs.length ? `<svg class="hub-ring" viewBox="0 0 200 200" aria-hidden="true">${arcs.map((a, i) => `<path class="ring-${i % 2 ? "b" : "a"}" d="${ringArc(a)}"></path>`).join("")}</svg>` : "";
+  const wires = `<svg class="wires" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="${pts.map((p) => `M50 50L${p.x} ${p.y}`).join("")}"></path></svg>`;
+  const hubEl = `<button type="button" class="hub lv-${hub.level}" data-hub ${trail.length > 1 ? `aria-label="${esc(`${hub.name}. Back to ${trail.at(-2).name}`)}"` : "disabled"}>
+      <span class="hub-title">${esc(hub.name)}</span><span class="hub-line">${esc(LEVEL_WORD[hub.level])}</span>${below ? `<span class="hub-line">${plural(children.length, below === "process" ? "process" : below, PLURAL[below])}</span>` : ""}</button>`;
+  main().innerHTML = page("Organisation", `
+    <ol class="map-crumbs" aria-label="Where you are">${trail.map((x, i) => `<li><button type="button" data-crumb="${i}" ${i === trail.length - 1 ? 'aria-current="page"' : ""}>${esc(x.name)}</button></li>`).join("")}</ol>
+    <div class="map-split">
+      <div class="map-main">
+        <div class="stage-box"><div class="stage ${children.length > 8 ? "tall" : ""}">${wires}<div class="hub-wrap">${ring}${hubEl}</div>${nodes}
+          ${children.length ? "" : `<p class="stage-empty muted">${below ? `No ${PLURAL[below]} here yet. Add one below.` : ""}</p>`}</div></div>
+        ${below ? `<form class="row map-add" id="map-add" novalidate><label class="visually-hidden" for="map-add-name">A new ${below} for ${esc(hub.name)}</label>
+          <input id="map-add-name" name="item" type="text" maxlength="${below === "service" ? 60 : 80}" placeholder="A new ${below} for ${esc(hub.name)}" ${below === "service" ? 'list="map-svcs"' : ""}>
+          ${below === "service" ? `<datalist id="map-svcs">${(A.services || []).filter((s) => !children.some((x) => x.name.toLowerCase() === s.name.toLowerCase())).map((s) => `<option value="${esc(s.name)}"></option>`).join("")}</datalist>` : ""}<button class="btn small" type="submit">${ICON.plus} Add a ${below}</button></form>` : ""}
+        <p class="small muted">Circles show each item's share of ${esc(hub.name)}, from its weighting. ${trail.length > 1 ? `Click the middle to go back to ${esc(trail.at(-2).name)}.` : "Click a service to see its functions."}</p>
+      </div>
+      <aside class="map-panel" id="map-panel">${mapPanel(sel, shareIn, sel.id === hub.id ? children : [])}</aside>
+    </div>`,
+    "Your organisation's services, their functions and, where useful, processes, each with its weighting and a sheet of facts. Assessments will attach here, and their scores roll up.");
+  main().firstElementChild.classList.add("map-page");
+  $$("[data-node]").forEach((b) => b.addEventListener("click", () => {
+    const it = byId.get(Number(b.dataset.node));
+    if (BELOW[it.level]) mapState.path = [...path, it.id];
+    mapState.sel = it.id;
+    drawMap();
+  }));
+  $("[data-hub]")?.addEventListener("click", () => { mapState.sel = mapState.path.pop(); drawMap(); });
+  $$("[data-crumb]").forEach((b) => b.addEventListener("click", () => { const i = Number(b.dataset.crumb); mapState.path = path.slice(0, i); mapState.sel = trail[i].id; drawMap(); }));
+  $("#map-add")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = e.target.elements.namedItem("item").value.trim();
+    if (!name) return;
+    try { const r = await api("/api/org/item", { action: "add", parentId: hub.id, name }); mapState.sel = r.id; if (below === "service") A.services = null; await reloadMap(`${name} added.`); }
+    catch (err) { fail(err); }
+  });
+  bindMapPanel(sel);
+}
+function mapPanel(it, shareIn, children) {
+  const d = A.org, vals = d.values[it.id] || {}, parent = d.items.find((x) => x.id === it.parent_id);
+  const canRemove = it.parent_id && (A.me.siteAdmin || A.me.role === "lead" || it.created_by === A.me.email);
+  const field = (p) => {
+    const v = vals[p.id] ?? "", id = `fact-${p.id}`;
+    const input = p.kind === "choice" ? `<select id="${id}" data-fact="${p.id}"><option value="">Not set</option>${p.choices.map((c) => `<option ${c === v ? "selected" : ""}>${esc(c)}</option>`).join("")}</select>`
+      : `<input id="${id}" data-fact="${p.id}" type="text" ${p.kind === "text" ? "" : 'inputmode="decimal"'} value="${esc(p.kind === "text" ? v : factValue(p, v))}" placeholder="${p.kind === "money" ? "£" : ""}">`;
+    return `<div class="fact"><label for="${id}">${esc(p.name)}${p.unit ? ` <span class="muted small">(${esc(p.unit)})</span>` : ""}${p.fhrg ? "" : ` <span class="chip">your own</span>`}</label>${input}</div>`;
+  };
+  return `<h2>${esc(it.name)}</h2>
+    <p class="small muted" style="margin-top:-0.4rem">${esc(LEVEL_WORD[it.level])}${it.std_key && it.std_key !== "org" ? " · standard, so it can be compared with other authorities" : ""}${parent ? ` · ${pct(shareIn(it))} of ${esc(parent.name)}` : ""}</p>
+    <form class="form" id="map-item" novalidate>
+      <div class="field"><label for="mi-name">Name</label><div class="row"><input id="mi-name" type="text" maxlength="80" value="${esc(it.name)}"><button class="btn small secondary" type="submit">Rename</button></div></div>
+      ${parent ? `<div class="field"><label for="mi-weight">Weighting</label><p class="hint">Its share among ${esc(owner(parent.name))} ${esc(PLURAL[it.level])} comes from this.</p>
+        <select id="mi-weight">${mapWeights(it.weight)}</select></div>
+        <div class="row"><button class="btn small quiet" type="button" data-move="-1">Move earlier</button><button class="btn small quiet" type="button" data-move="1">Move later</button>
+          ${canRemove ? `<button class="btn small danger" type="button" id="mi-remove">Remove</button>` : ""}</div>` : ""}
+    </form>
+    ${children.length ? `<h3 class="h3" style="margin-top:1.25rem">Its ${esc(PLURAL[BELOW[it.level]])}' shares</h3>
+      <table class="kid-weights"><thead><tr><th scope="col">${esc(LEVEL_WORD[BELOW[it.level]])}</th><th scope="col">Weighting</th><th scope="col" class="num">Share</th></tr></thead>
+        <tbody>${children.map((k) => `<tr><td>${esc(k.name)}</td><td><select data-kid-weight="${k.id}" aria-label="${esc(`Weighting for ${k.name}`)}">${mapWeights(k.weight)}</select></td><td class="num">${pct(shareIn(k))}</td></tr>`).join("")}</tbody></table>` : ""}
+    <h3 class="h3" style="margin-top:1.25rem">Property sheet</h3>
+    <div class="facts-sheet">${d.properties.map(field).join("")}</div>
+    <details class="fact-add"><summary>Add a fact of your own</summary>
+      <form class="form" id="fact-add" novalidate>
+        <div class="field"><label for="fa-name">Name</label><input id="fa-name" name="factName" type="text" maxlength="60"></div>
+        <div class="row2"><div class="field"><label for="fa-kind">Kind</label><select id="fa-kind" name="factKind"><option value="number">A number</option><option value="money">An amount (£)</option><option value="text">Text</option><option value="choice">A choice</option></select></div>
+          <div class="field"><label for="fa-unit">Unit (optional)</label><input id="fa-unit" name="factUnit" type="text" maxlength="20" placeholder="For example km"></div></div>
+        <div class="field"><label for="fa-choices">Choices, for a choice</label><input id="fa-choices" name="factChoices" type="text" placeholder="For example Owned, Leased, Shared"></div>
+        <button class="btn small" type="submit">Add the fact</button></form>
+      <p class="small muted">It's added to every item on ${esc(A.org.authority)}'s map, and only your colleagues see it.</p></details>`;
+}
+function bindMapPanel(it) {
+  $("#map-item").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = $("#mi-name").value.trim();
+    if (!name || name === it.name) return;
+    try { await api("/api/org/item", { action: "rename", id: it.id, name }); if (it.level === "service") A.services = null; await reloadMap("Renamed."); } catch (err) { fail(err); }
+  });
+  $("#mi-weight")?.addEventListener("change", async (e) => {
+    try { await api("/api/org/item", { action: "weight", id: it.id, weight: Number(e.target.value) }); await reloadMap("Weighting saved."); } catch (err) { fail(err); }
+  });
+  $$("[data-kid-weight]").forEach((s) => s.addEventListener("change", async () => {
+    try { await api("/api/org/item", { action: "weight", id: Number(s.dataset.kidWeight), weight: Number(s.value) }); await reloadMap("Weighting saved."); } catch (err) { fail(err); }
+  }));
+  $$("[data-move]").forEach((b) => b.addEventListener("click", async () => { try { await api("/api/org/item", { action: "move", id: it.id, dir: Number(b.dataset.move) }); await reloadMap(); } catch (err) { fail(err); } }));
+  $("#mi-remove")?.addEventListener("click", async () => {
+    if (!(await confirmBox(`Remove ${it.name}?`, `"${esc(it.name)}" will be taken off the map, with its property sheet.`, "Remove", true))) return;
+    try { await api("/api/org/item", { action: "remove", id: it.id }); }
+    catch (err) {
+      if (err.status !== 409) { fail(err); return; }
+      if (!(await confirmBox("Remove everything below it too?", `${esc(err.message)} Removing it takes them off the map as well.`, "Remove them all", true))) return;
+      try { await api("/api/org/item", { action: "remove", id: it.id, withEverything: true }); } catch (e2) { fail(e2); return; }
+    }
+    mapState.sel = it.parent_id;
+    await reloadMap("Removed.");
+  });
+  $$("[data-fact]").forEach((el) => el.addEventListener("change", async () => {
+    const p = A.org.properties.find((x) => x.id === Number(el.dataset.fact));
+    try {
+      const r = await api("/api/org/fact", { itemId: it.id, propertyId: p.id, value: el.value });
+      (A.org.values[it.id] ||= {})[p.id] = r.value;
+      if (!r.value) delete A.org.values[it.id][p.id];
+      if (el.tagName === "INPUT" && p.kind !== "text") el.value = factValue(p, r.value);
+      el.removeAttribute("aria-invalid");
+      toast(`${p.name} saved.`, 2000);
+    } catch (err) { el.setAttribute("aria-invalid", "true"); fail(err); }
+  }));
+  $("#fact-add").addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const f = e.target.elements;
+    try {
+      await api("/api/org/fact-add", { name: f.namedItem("factName").value, kind: f.namedItem("factKind").value, unit: f.namedItem("factUnit").value, choices: f.namedItem("factChoices").value });
+      await reloadMap("Fact added.");
+    } catch (err) { fail(err); }
+  });
+}
+
 async function pageTemplates() {
   setTitle("Templates");
   const tpls = await templates(true);

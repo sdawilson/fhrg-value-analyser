@@ -28,6 +28,7 @@ import type { Config } from "./config";
 import { getConfig, missingSettings } from "./config";
 import { DbError } from "./db";
 import { handleDownload, handleExport } from "./downloads";
+import { handleOrgFact, handleOrgFactAdd, handleOrgGet, handleOrgItem } from "./org";
 import { handleServiceAdd, handleServiceDelete, handleServiceList } from "./services";
 import { handleTemplateDelete, handleTemplateGet, handleTemplateHide, handleTemplateList, handleTemplateSave } from "./templates";
 import { FriendlyError, escapeHtml, json } from "./util";
@@ -85,6 +86,10 @@ export async function handleRequest(request: Request): Promise<Response> {
         case "/api/templates/delete": return await handleTemplateDelete(c, request);
         case "/api/templates/hide": return await handleTemplateHide(c, request);
         case "/api/services/list": return await handleServiceList(c, request);
+        case "/api/org/get": return await handleOrgGet(c, request);
+        case "/api/org/item": return await handleOrgItem(c, request);
+        case "/api/org/fact": return await handleOrgFact(c, request);
+        case "/api/org/fact-add": return await handleOrgFactAdd(c, request);
         case "/api/services/add": return await handleServiceAdd(c, request);
         case "/api/admin/service-delete": return await handleServiceDelete(c, request);
         case "/api/assessments/list": return await handleAssessmentList(c, request);
