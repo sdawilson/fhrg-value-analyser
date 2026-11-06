@@ -184,6 +184,63 @@ await test("each priority has a bar, as a share of the largest", () => {
   assert.equal(share(cells.find((c) => num(c) === max)), 1);
   for (const c of cells) assert.ok(Math.abs(share(c) - num(c) / max) < 0.02, `${c.textContent} ${share(c)}`);
 });
+// ----- row totals
+const totalsBox = () => w.document.querySelector("#sc-totals");
+const cellNum = (el) => { const v = el.textContent.trim(); return v === "–" ? null : Number(v); };
+await test("row totals are off until asked for, and the choice is remembered", () => {
+  assert.equal(totalsBox().checked, false);
+  assert.ok(!sc().classList.contains("show-totals"));
+  totalsBox().checked = true; totalsBox().dispatchEvent(new w.Event("change", { bubbles: true }));
+  assert.ok(sc().classList.contains("show-totals"));
+  assert.equal(w.localStorage.getItem("va.rowTotals"), "1");
+});
+await test("each row's totals are its weighted share, and add up to the dimension's and the overall score", async () => {
+  const doc = VA.parse(JSON.parse(await w.eval(`(async () => JSON.stringify(await Demo.call("/api/assessments/open", { id: ${list.find((a) => a.type === "Best Practice Carbon").id} })))()`)).va2, "a.va2").doc;
+  const c = VA.calculate(doc);
+  let overall = 0;
+  c.dims.forEach((d, di) => {
+    const rows = doc.rows.map((r, i) => ({ r, i })).filter((o) => o.r.dimension === d.name && c.rows[o.i].scored);
+    const sumW = rows.reduce((a, o) => a + o.r.weight, 0), allW = doc.rows.reduce((a, r, i) => a + (c.rows[i].heading ? 0 : r.weight || 0), 0);
+    let dimSum = 0, allSum = 0;
+    for (const { r, i } of rows) {
+      const row = sc().querySelector(`.f-row[data-i="${i}"]`), dimCell = cellNum(row.querySelector("[data-tdim] .tv")), allCell = cellNum(row.querySelector("[data-tall] .tv"));
+      const s = c.rows[i].score;
+      if (s === null) { assert.equal(dimCell, null); continue; }
+      assert.ok(Math.abs(dimCell - (r.weight / sumW) * s) < 0.051, `${r.id} dimension total ${dimCell}`);
+      assert.ok(Math.abs(allCell - (r.weight / allW) * s) < 0.0051, `${r.id} assessment total ${allCell}`);
+      dimSum += dimCell; allSum += allCell;
+    }
+    const tr = sc().querySelector(`[data-total="${di}"]`);
+    assert.equal(tr.querySelector('[data-tsum="dim"]').textContent, d.score.toFixed(1), d.name);
+    assert.ok(Math.abs(dimSum - d.score) < 0.05 * rows.length + 0.01, `${d.name}: rows add up to the dimension's score`);
+    overall += Number(tr.querySelector('[data-tsum="all"]').textContent);
+    assert.ok(Math.abs(allSum - Number(tr.querySelector('[data-tsum="all"]').textContent)) < 0.005 * rows.length + 0.01);
+  });
+  assert.ok(Math.abs(overall - c.totals.score) < 0.005 * c.dims.length + 0.01, "the dimensions' assessment totals add up to the overall score");
+  assert.ok(sc().querySelector("[data-tdim] .lbl-mobile"), "labelled on a phone");
+});
+await test("row totals follow a changed answer, and hide again when unticked", () => {
+  const s = rowsWith("score").find((x) => valueOf(x) !== null && x.closest(".f-row").querySelector("[data-tdim]")), row = s.closest(".f-row");
+  const before = row.querySelector("[data-tdim] .tv").textContent;
+  const now = valueOf(s);
+  s.value = [...s.options].find((o) => { const m = (o.value + o.textContent).match(/\[(\d+)\]/); return m && Number(m[1]) !== now; }).value;
+  s.dispatchEvent(new w.Event("change", { bubbles: true }));
+  assert.notEqual(row.querySelector("[data-tdim] .tv").textContent, before);
+  totalsBox().checked = false; totalsBox().dispatchEvent(new w.Event("change", { bubbles: true }));
+  assert.ok(!sc().classList.contains("show-totals"));
+  assert.equal(w.localStorage.getItem("va.rowTotals"), "0");
+});
+await test("scores sit in the middle of their cells", () => {
+  const css = html.replace(/\s+/g, " ");
+  assert.match(css, /\.f-row select \{ text-align: center; text-align-last: center; \}/);
+  assert.match(css, /\.f-row \.pri \{[^}]*text-align: center;/);
+  assert.match(css, /\.pri-bar \{[^}]*align-items: center;/);
+  assert.match(css, /\.f-head \.mid, \.f-row \.c-t, \.f-row \.c-b \{ text-align: center; \}/);
+  assert.match(css, /\.prio-table td\.num, \.prio-table th\.num \{ text-align: center; vertical-align: middle; \}/);
+  assert.match(css, /\.heat td\.v \{[^}]*vertical-align: middle;/);
+  const head = [...sc().querySelectorAll(".f-head span")].filter((s) => /Weighting|Performance|Confidence|Opportunity|Priority/.test(s.textContent));
+  assert.ok(head.length >= 5 && head.every((s) => s.classList.contains("mid")));
+});
 // ----- locked weightings
 const lockBox = () => w.document.querySelector("#sc-lock");
 const weightSel = () => rowsWith("weight");
