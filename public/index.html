@@ -4568,10 +4568,10 @@ async function adminServices(el) {
   el.innerHTML = `<div class="card" style="margin-top:1.5rem"><h2>Services</h2><p class="small muted">What templates and assessments are for. The FHRG's services are offered to every member authority, and an authority can add its own when it copies a template. Benchmarks only compare assessments of the same service. ${esc(VA.DEFAULT_SERVICE)} is the service of anything that doesn't say.</p>
     <div class="table-wrap"><table class="mini"><thead><tr><th>Service</th><th>Kept by</th><th class="num">Templates</th><th></th></tr></thead><tbody>
     ${list.map((s) => `<tr><td>${esc(s.name)}</td><td>${s.fhrg ? "FHRG" : esc(s.authority_name || "An authority")}</td><td class="num">${s.templates ?? ""}</td><td>${s.name.toLowerCase() === VA.DEFAULT_SERVICE.toLowerCase() ? "" : `<button class="btn small quiet" type="button" data-svc-del="${s.id}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
-    <form class="row" id="svc-add" novalidate style="margin-top:0.75rem"><input type="text" name="name" aria-label="A new FHRG service" placeholder="A new FHRG service" maxlength="60" style="max-width:20rem"><button class="btn small" type="submit">Add</button></form><div id="svc-msg"></div></div>`;
+    <form class="row" id="svc-add" novalidate style="margin-top:0.75rem"><input type="text" name="service" aria-label="A new FHRG service" placeholder="A new FHRG service" maxlength="60" style="max-width:20rem"><button class="btn small" type="submit">Add</button></form><div id="svc-msg"></div></div>`;
   $("#svc-add", el).addEventListener("submit", async (e) => {
     e.preventDefault();
-    const name = e.target.name.value.trim();
+    const name = e.target.elements.namedItem("service").value.trim();
     if (!name) return;
     try { const r = await api("/api/services/add", { name, scope: "fhrg" }); A.services = null; toast(r.added ? `${r.service.name} added.` : `${r.service.name} is already on the list.`); adminServices(el); } catch (err) { fail(err, $("#svc-msg", el)); }
   });

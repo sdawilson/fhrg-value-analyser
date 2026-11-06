@@ -420,6 +420,102 @@ await test("the template names are clean", () => {
   const names = Array.from(w.eval("STARTERS")).flatMap((s) => Array.from(s.rows).map((r) => r[2]));
   assert.deepEqual(names.filter((n) => / \? /.test(n)), []);
 });
+// ----- services, and copying a template to another service or level
+const acceptLeave = () => { const d = w.document.querySelector("dialog.ask[open]"); if (d && /Leave without saving/.test(d.textContent)) d.querySelector("button[value=ok]").click(); };
+const demoCall = async (path, body = {}) => JSON.parse(await w.eval(`(async () => JSON.stringify(await Demo.call(${JSON.stringify(path)}, ${JSON.stringify(body)})))()`));
+const openTemplates = async () => {
+  acceptLeave(); w.location.hash = "/templates";
+  await wait(() => (acceptLeave(), /Scorecard templates/.test(w.document.querySelector("#main")?.textContent || "") && w.document.querySelector("[data-copy]")), "the templates");
+};
+const cardOf = (name) => [...w.document.querySelectorAll(".tcard")].find((c) => c.querySelector("h3")?.textContent === name);
+const set = (el, v) => { if (el.type === "checkbox") el.checked = v; else el.value = v; el.dispatchEvent(new w.Event(el.tagName === "INPUT" && el.type !== "checkbox" ? "input" : "change", { bubbles: true })); el.dispatchEvent(new w.Event("change", { bubbles: true })); };
+const saveTemplate = async () => {
+  w.document.querySelector("#te-save").click();
+  await wait(() => { const d = w.document.querySelector("dialog.ask[open]"); if (d && /Save with problems/.test(d.textContent)) d.querySelector("button[value=ok]").click(); return /^Saved$/.test(w.document.querySelector("#te-status")?.textContent || ""); }, "the template to save");
+};
+await test("template cards say which service and level they're for", async () => {
+  await openTemplates();
+  assert.match(cardOf("Value for Money (Highways)").textContent, /Highways · Service level/);
+});
+await test("copying to another service swaps its name, and opens the copy to be tailored", async () => {
+  cardOf("Value for Money (Highways)").querySelector("[data-copy]").click();
+  await wait(() => w.document.querySelector("dialog.ask[open] #cp-svc"), "the copy dialog");
+  const d = w.document.querySelector("dialog.ask[open]");
+  assert.deepEqual([...d.querySelectorAll("#cp-svc option")].map((o) => o.textContent), ["Highways", "Transport", "Waste", "Add a service…"]);
+  assert.equal(d.querySelector("#cp-hide"), null, "a member can't hide an FHRG template");
+  set(d.querySelector("#cp-svc"), "Waste");
+  assert.equal(d.querySelector("#cp-name").value, "Value for Money (Waste)");
+  set(d.querySelector('input[name="lv_function"]'), true);
+  set(d.querySelector('input[name="lv_service"]'), false);
+  d.querySelector("button[value=ok]").click();
+  await wait(() => w.document.querySelector("#te-copy-note"), "the copy in the editor");
+  const note = w.document.querySelector("#te-copy-note").textContent;
+  assert.match(note, /A copy of "Value for Money \(Highways\)" for Waste, at Function level/);
+  assert.match(note, /from "Highways" to "Waste"/);
+  assert.match(note, /Type: Value for Money \(Highways\) → Value for Money \(Waste\)/);
+  assert.equal(w.document.querySelector("#te-svc").value, "Waste");
+  assert.equal(w.document.querySelector("#te-type").value, "Value for Money (Waste)");
+  assert.equal(w.document.querySelector('[data-level="function"]').checked, true);
+  assert.equal(w.document.querySelector('[data-level="service"]').checked, false);
+  await saveTemplate();
+  assert.equal(w.document.querySelector("#te-copy-note"), null, "the note goes once it's saved");
+  const saved = (await demoCall("/api/templates/list")).templates.find((x) => x.name === "Value for Money (Waste)");
+  assert.equal(saved.service, "Waste"); assert.equal(saved.levels, "function"); assert.equal(saved.profile_type, "Value for Money (Waste)");
+  assert.match((await demoCall("/api/templates/get", { id: saved.id })).vt2, /Template Service:= Waste\r\n/);
+  assert.ok((await demoCall("/api/templates/list")).templates.find((x) => x.name === "Value for Money (Highways)").visible, "the original stays");
+});
+await test("moving a template to a new service hides the original once the copy is saved", async () => {
+  await openTemplates();
+  cardOf("Depot options appraisal").querySelector("[data-copy]").click();
+  await wait(() => w.document.querySelector("dialog.ask[open] #cp-svc"), "the copy dialog");
+  const d = w.document.querySelector("dialog.ask[open]");
+  set(d.querySelector("#cp-svc"), "");
+  assert.equal(d.querySelector("#cp-new-wrap").hidden, false, "a new service can be named");
+  set(d.querySelector("#cp-new"), "Parks and open spaces");
+  assert.equal(d.querySelector("#cp-name").value, "Depot options appraisal (Parks and open spaces)", "Highways isn't in its name, so the service is added");
+  set(d.querySelector("#cp-hide"), true);
+  d.querySelector("button[value=ok]").click();
+  await wait(() => w.document.querySelector("#te-copy-note"), "the copy in the editor");
+  assert.match(w.document.querySelector("#te-copy-note").textContent, /The original will be hidden once it's saved/);
+  assert.ok((await demoCall("/api/services/list")).services.some((s) => s.name === "Parks and open spaces" && !s.fhrg), "the new service is the authority's own");
+  await saveTemplate();
+  const list = (await demoCall("/api/templates/list")).templates;
+  assert.equal(list.find((x) => x.name === "Depot options appraisal").visible, false);
+  assert.equal(list.find((x) => x.name === "Depot options appraisal (Parks and open spaces)").service, "Parks and open spaces");
+  acceptLeave(); w.location.hash = "/new";
+  await wait(() => /New assessment/.test(w.document.querySelector("#main")?.textContent || "") && w.document.querySelector(".tcard"), "the new assessment page");
+  assert.equal(cardOf("Depot options appraisal"), undefined, "a hidden template isn't offered");
+  await openTemplates();
+  const hidden = w.document.querySelector(".hidden-tpls");
+  assert.match(hidden.textContent, /Depot options appraisal/);
+  hidden.querySelector("[data-show-t]").click();
+  await wait(() => !w.document.querySelector(".hidden-tpls") && cardOf("Depot options appraisal"), "it to be offered again");
+});
+await test("FHRG administrators keep the list of services", async () => {
+  acceptLeave(); w.location.hash = "/admin/templates";
+  await wait(() => /Only the FHRG team/.test(w.document.querySelector("#main")?.textContent || ""), "the admin page, refused to a lead");
+  const role = w.document.querySelector("#demo-role");
+  set(role, "admin");
+  await wait(() => w.document.querySelector("#svc-add"), "the services");
+  const rows = () => [...w.document.querySelectorAll("#admin-svcs tbody tr")].map((r) => r.textContent);
+  assert.ok(rows().some((r) => /Highways/.test(r)) && rows().some((r) => /Parks and open spaces.*Northbridge Council/.test(r)));
+  const f = w.document.querySelector("#svc-add");
+  f.querySelector("input").value = "Libraries";
+  f.dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await wait(() => rows().some((r) => /Libraries/.test(r)), "the new service");
+  const used = rows().findIndex((r) => /Parks and open spaces/.test(r));
+  w.document.querySelectorAll("#admin-svcs tbody tr")[used].querySelector("[data-svc-del]").click();
+  await wait(() => w.document.querySelector("dialog.ask[open]"), "the question");
+  w.document.querySelector("dialog.ask[open] button[value=ok]").click();
+  await wait(() => /so it stays/.test(w.document.querySelector("#svc-msg")?.textContent || ""), "the refusal");
+  const lib = rows().findIndex((r) => /Libraries/.test(r));
+  w.document.querySelectorAll("#admin-svcs tbody tr")[lib].querySelector("[data-svc-del]").click();
+  await wait(() => w.document.querySelector("dialog.ask[open]"), "the question");
+  w.document.querySelector("dialog.ask[open] button[value=ok]").click();
+  await wait(() => !rows().some((r) => /Libraries/.test(r)), "it to go");
+  set(role, "lead");
+  await wait(() => w.document.querySelector(".nav [data-admin]").hidden, "the lead's view");
+});
 await test("the sign-in card offers the Northbridge demonstration beside Sign in, as Clarion's does", async () => {
   // an earlier test may leave unsaved changes: say yes to leaving them
   const leave = () => w.document.querySelector("dialog.ask[open] button[value=ok]")?.click();
