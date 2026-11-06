@@ -5,6 +5,7 @@
 //
 //   GET  /  /assessments  /a/<id>/...  /templates/...  /benchmarks/...  /guidance  /signin  /admin ...
 //                                  the toolkit page
+//   GET  /demo                     the Northbridge demonstration: the same page on fictional data, in the browser
 //   GET  /api/boot                 the signed-in person and the toolkit's switches
 //   GET  /download/assessment/<id> | template/<id> | version/<id>
 //   GET  /export/assessments.csv | dimensions.csv            site administrators, for Excel
@@ -38,9 +39,9 @@ const PAGE_HEADERS = {
   "content-security-policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'",
 };
 
-// The page travels in the container, read once at start-up. It runs on sample data unless it's served from here.
-let page: string | null = null;
-export function setPage(html: string | null): void { page = html ? html.replace("const LIVE = false;", "const LIVE = true;") : null; }
+// The page travels in the container, read once at start-up. It runs on fictional data unless it's served live.
+let page: string | null = null, demoPage: string | null = null;
+export function setPage(html: string | null): void { demoPage = html; page = html ? html.replace("const LIVE = false;", "const LIVE = true;") : null; }
 
 function servePage(c: Config): Response {
   const missing = missingSettings(c);
@@ -59,6 +60,7 @@ export async function handleRequest(request: Request): Promise<Response> {
     if (request.method === "GET" || request.method === "HEAD") {
       if (path === "/favicon.ico") return new Response(null, { status: 204 });
       if (path === "/robots.txt") return new Response("User-agent: *\nDisallow: /\n", { headers: { "content-type": "text/plain" } });
+      if (path === "/demo") return c.demo && demoPage ? new Response(demoPage, { headers: PAGE_HEADERS }) : new Response("Not found", { status: 404 });
       if (missingSettings(c).length && (path.startsWith("/api/") || path.startsWith("/download/"))) throw new FriendlyError(`The toolkit is not set up yet. Missing settings: ${missingSettings(c).join(", ")}.`, 500);
       if (path === "/api/boot") return await handleBoot(c, request);
       const dl = path.match(/^\/download\/(assessment|template|version)\/(\d+)$/);

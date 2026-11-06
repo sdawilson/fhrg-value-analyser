@@ -149,7 +149,7 @@ export async function handleBoot(c: Config, request: Request): Promise<Response>
   return json({
     me: publicMe(me),
     fhrgSite: c.fhrgSite,
-    features: { versions: c.keepVersions > 0 },
+    features: { versions: c.keepVersions > 0, demo: c.demo },
     limits: { maxUpload: c.maxUpload, minPeers: c.minPeers },
   });
 }

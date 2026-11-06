@@ -11,7 +11,7 @@
 //              password resets), SITE_ADMINS (emails, separated by commas; the website's site administrators
 //              count too), KEEP_VERSIONS (default 0 = off; for example 10 keeps the ten most recent earlier
 //              saves), MIN_PEERS (default 3: the fewest other authorities a live peer comparison may show),
-//              MAX_UPLOAD_MB (default 5)
+//              MAX_UPLOAD_MB (default 5), DEMO (on, the default, or off: the Northbridge demonstration at /demo)
 
 import process from "node:process";
 
@@ -28,6 +28,7 @@ export type Config = {
   keepVersions: number;
   minPeers: number;
   maxUpload: number;
+  demo: boolean;
 };
 
 // Settings are pasted in by hand, so be forgiving: ignore stray spaces, invisible characters and
@@ -47,7 +48,7 @@ function env(name: string, fallback = "", keepEmpty = false): string {
 
 // For the start-up log: which settings arrived (names only, never values)
 const SECRET_SETTINGS = ["STORAGE_ACCESS_KEY", "BUNNY_DATABASE_URL", "BUNNY_DATABASE_AUTH_TOKEN", "SESSION_SECRET"];
-const VARIABLE_SETTINGS = ["STORAGE_ZONE", "STORAGE_HOST", "ROOT_FOLDER", "WEBSITE_URL", "SITE_ADMINS", "KEEP_VERSIONS", "MIN_PEERS", "MAX_UPLOAD_MB"];
+const VARIABLE_SETTINGS = ["STORAGE_ZONE", "STORAGE_HOST", "ROOT_FOLDER", "WEBSITE_URL", "SITE_ADMINS", "KEEP_VERSIONS", "MIN_PEERS", "MAX_UPLOAD_MB", "DEMO"];
 
 function folder(name: string, fallback: string): string {
   const f = env(name, fallback, true).replace(/^\/+|\/+$/g, "");
@@ -73,6 +74,7 @@ export function getConfig(): Config {
     keepVersions: Math.max(0, Math.min(100, Math.round(Number(env("KEEP_VERSIONS", "0")) || 0))),
     minPeers: Math.max(3, Math.min(50, Math.round(Number(env("MIN_PEERS", "3")) || 3))),
     maxUpload: Math.max(1, Math.min(20, Number(env("MAX_UPLOAD_MB", "5")) || 5)) * 1024 * 1024,
+    demo: !/^(0|no|false|off)$/i.test(env("DEMO", "on")),
   };
 }
 

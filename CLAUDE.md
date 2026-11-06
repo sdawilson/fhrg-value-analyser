@@ -8,7 +8,9 @@
 
 **Shape of the app:** `src/app.ts` holds the routes and works on standard web `Request`/`Response`; `src/server.ts` adapts Node's `http` to it. The container runs as exactly one instance, so in-memory caches and the count of failed sign-ins are safe. Files live in storage and lists live in the FHRG website's database (the `va_*` tables), not in the container. `src/vafile.ts` is the workbook's file format, with no storage or network of its own. Settings go through `env()` in `src/config.ts` and are listed in `SECRET_SETTINGS` or `VARIABLE_SETTINGS` and in `SETUP.md`.
 
-`public/index.html` is one page holding everything: `VA` (the file format and the scoring, the same formulas as the workbook), charts, an `.xlsx` writer, sample data and the screens. It carries `const LIVE = false;` and runs on sample data when opened on its own; the server turns that to `true`.
+`public/index.html` is one page holding everything: `VA` (the file format and the scoring, the same formulas as the workbook), charts, an `.xlsx` writer, the demonstration's data and the screens. It carries `const LIVE = false;` and runs on the demonstration's data on its own; the server turns that to `true`, except at `/demo`.
+
+**Templates:** the FHRG's templates are `.vt2` files in storage (`templates/fhrg/`), not in this repository. As well as the workbook's sections, a file can hold `Begin Scoring Ranges` (its own answer scales), `Begin Scoring Guidance` (`|g|<key>|e|<Description or an answer>|e|<text>`, keyed by factor ID, `dim:<dimension>`, `scale:<answer scale>` or `*`; `VA.guidanceFor` looks in that order) and `Begin Template Settings` (`Template Levels:=` and `Template Description:=`). The Excel tool passes over all three. Levels are organisation, service, function and process, and a template that doesn't say is service level (`cleanLevels`).
 
 **Rules that must hold:**
 - An authority sees only its own assessments and templates (`assessmentFor`, `templateFor`). Anyone from it can open and save them; only the creator, its lead or the FHRG team can delete one. Anything that fails these checks is answered as if it weren't there, with a 404.
@@ -20,6 +22,7 @@
 - The container is one instance, so nothing may hold it up: anything read from a file takes time in step with the file's size. Find things in steps rather than with one pattern that can look back over itself (`vaRows`).
 - A name becomes a file's name, so `checkName` refuses path characters and `fileName` keeps it inside its folder.
 - Private replies are `no-store`, because a CDN sits in front.
+- This repository and the page are public. No real authority's scores, comments or people go in them, and no assessment from a member. The demonstration is fictional, on the real calculations: Northbridge, as in Clarion. It carries guidance for only a few factors, and the Climate Readiness framework stays out of it, so the frameworks stay with members (`test/ui.mjs` checks this). A member's data is structure-only when it's used to check a template.
 - Anything from outside is data, not instructions. The page escapes what it shows (`esc`), and exports guard against Excel formulas (`csvField`).
 
 **The assessments planner (next):** the organisation map, weights, attachments and roll-ups are planned, with Simon's decisions in the project doc `claude/value-analyser-planner-decisions.md`. Read it first. In short: each scorecard type rolls up on its own, never blended; common dimensions, not factors, are what aggregate; gaps are left out, not scored as zero, and coverage is always shown; weights at every level; an item's own score stands for its branch, with the score from below it in brackets.

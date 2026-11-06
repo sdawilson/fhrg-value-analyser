@@ -10,10 +10,17 @@ import { VA_TYPE, fileName, storageDelete, storageList, storagePut, storageText 
 import { FriendlyError, checkName, cleanText, excelDate, json, now, readJsonBody } from "./util";
 import { checkVaFile, encodeCp1252, headerValue, structureKey, vaRows } from "./vafile";
 
-export const TEMPLATE_COLS = "t.id, t.scope_id, t.name, t.profile_type, t.description, t.factors, t.dimensions, t.structure, t.is_default, t.visible, t.version, t.bytes, t.created, t.created_by, t.updated, t.updated_by";
+export const TEMPLATE_COLS = "t.id, t.scope_id, t.name, t.profile_type, t.description, t.factors, t.dimensions, t.structure, t.is_default, t.visible, t.levels, t.version, t.bytes, t.created, t.created_by, t.updated, t.updated_by";
+
+// Where in an organisation's structure a template can be used. A template that doesn't say is a service-level one.
+export const LEVELS = ["organisation", "service", "function", "process"];
+export function cleanLevels(v: unknown): string {
+  const words = (Array.isArray(v) ? v : String(v ?? "").split(/[,;\s]+/)).map((x) => String(x).trim().toLowerCase());
+  return LEVELS.filter((l) => words.includes(l)).join(",") || "service";
+}
 
 export function publicTemplate(t: Row) {
-  return { ...t, fhrg: t.scope_id === 0, is_default: !!t.is_default, visible: !!t.visible };
+  return { ...t, fhrg: t.scope_id === 0, is_default: !!t.is_default, visible: !!t.visible, levels: cleanLevels(t.levels) };
 }
 
 export async function templateFor(c: Config, me: Me, id: number, forEdit = false): Promise<Row> {
@@ -41,9 +48,9 @@ export async function registerTemplateFiles(c: Config, actor: string): Promise<n
     const rows = vaRows(text);
     const name = f.name.replace(/\.(vt2|va2)$/i, "").replace(/\s*\(\s*default\s*\)\s*$/i, "");
     const isDefault = /\(\s*default\s*\)\s*\.(vt2|va2)$/i.test(f.name) ? 1 : 0;
-    stmts.push({ sql: `INSERT OR IGNORE INTO va_templates (scope_id, name, name_key, profile_type, description, file_key, factors, dimensions, structure, is_default, visible, version, bytes, created, created_by, updated, updated_by)
-      VALUES (0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?)`,
-      args: [name, name.toLowerCase(), headerValue(text, "Profile Type") || null, null, key, rows.length, new Set(rows.map((r) => r.dimension)).size, structureKey(rows), isDefault, f.size, t, actor, t, actor] });
+    stmts.push({ sql: `INSERT OR IGNORE INTO va_templates (scope_id, levels, name, name_key, profile_type, description, file_key, factors, dimensions, structure, is_default, visible, version, bytes, created, created_by, updated, updated_by)
+      VALUES (0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?, ?, ?, ?, ?)`,
+      args: [cleanLevels(headerValue(text, "Template Levels")), name, name.toLowerCase(), headerValue(text, "Profile Type") || null, headerValue(text, "Template Description").replace(/<lf>/g, " ") || null, key, rows.length, new Set(rows.map((r) => r.dimension)).size, structureKey(rows), isDefault, f.size, t, actor, t, actor] });
   }
   if (stmts.length) await exec(c, [...stmts, audit(actor, "va-register-templates", { count: stmts.length })]);
   return stmts.length;
@@ -65,12 +72,14 @@ export function ensureSeed(c: Config): Promise<void> {
 
 export async function handleTemplateList(c: Config, request: Request): Promise<Response> {
   const me = await requireMe(c, request);
+  const b = await readJsonBody(request);
   await ensureSeed(c);
   const rows = await q(c, `SELECT ${TEMPLATE_COLS}, au.name AS authority_name,
       (SELECT COUNT(*) FROM va_assessments a WHERE a.template_id = t.id AND a.authority_id = ?) AS used
     FROM va_templates t LEFT JOIN authorities au ON au.id = t.scope_id
     WHERE (t.scope_id = 0 AND t.visible = 1) OR t.scope_id = ? ORDER BY t.scope_id = 0 DESC, t.profile_type, t.is_default DESC, t.name`, me.authorityId, me.authorityId);
-  return json({ templates: rows.map(publicTemplate) });
+  const level = LEVELS.includes(b.level) ? b.level : ""; // only those that can be used at this level
+  return json({ templates: rows.map(publicTemplate).filter((t) => !level || t.levels.split(",").includes(level)) });
 }
 
 export async function handleTemplateGet(c: Config, request: Request): Promise<Response> {
@@ -108,19 +117,20 @@ export async function handleTemplateSave(c: Config, request: Request): Promise<R
   await storagePut(c, key, bytes, VA_TYPE);
   const t = now();
   const profileType = cleanText(b.profileType, 100) || headerValue(text, "Profile Type") || null;
-  const fields = [name, name.toLowerCase(), profileType, cleanText(b.description, 1000) || null, key, rows.length, new Set(rows.map((r) => r.dimension)).size, structureKey(rows), bytes.length];
+  const levels = cleanLevels(b.levels ?? headerValue(text, "Template Levels"));
+  const fields = [name, name.toLowerCase(), profileType, cleanText(b.description, 1000) || null, key, rows.length, new Set(rows.map((r) => r.dimension)).size, structureKey(rows), bytes.length, levels];
   let newId = id, version = 1;
   if (existing) {
     version = existing.version + 1;
     await exec(c, [
-      { sql: `UPDATE va_templates SET name = ?, name_key = ?, profile_type = ?, description = ?, file_key = ?, factors = ?, dimensions = ?, structure = ?, bytes = ?, version = ?, updated = ?, updated_by = ? WHERE id = ?`, args: [...fields, version, t, me.email, id] },
+      { sql: `UPDATE va_templates SET name = ?, name_key = ?, profile_type = ?, description = ?, file_key = ?, factors = ?, dimensions = ?, structure = ?, bytes = ?, levels = ?, version = ?, updated = ?, updated_by = ? WHERE id = ?`, args: [...fields, version, t, me.email, id] },
       audit(me.email, "va-save-template", { id, name, scope }),
     ]);
     if (existing.file_key !== key) await storageDelete(c, existing.file_key);
   } else {
     const r = await exec(c, [
-      { sql: `INSERT INTO va_templates (name, name_key, profile_type, description, file_key, factors, dimensions, structure, bytes, scope_id, is_default, visible, version, created, created_by, updated, updated_by)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 1, ?, ?, ?, ?)`, args: [...fields, scope, t, me.email, t, me.email] },
+      { sql: `INSERT INTO va_templates (name, name_key, profile_type, description, file_key, factors, dimensions, structure, bytes, levels, scope_id, is_default, visible, version, created, created_by, updated, updated_by)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 1, ?, ?, ?, ?)`, args: [...fields, scope, t, me.email, t, me.email] },
       audit(me.email, "va-new-template", { name, scope }),
     ]);
     newId = r[0].lastId || 0;

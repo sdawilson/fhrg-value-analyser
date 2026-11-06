@@ -139,7 +139,9 @@ Tell Claude when you've done step 3, and it can check that the record has change
 - **Keep it to exactly one instance** (Regions and Scaling: minimum 1, maximum 1).
 - **Type setting names by hand** when you add one, then click **Update Container**.
 - **Leave the pull zone's caching settings as they are.** The toolkit tells it not to keep private pages; an override could make it keep them.
-- **FHRG templates:** add them on the Templates page, or put `.vt2` files in the storage folder `templates/fhrg/`. Ending a file's name in `(Default)` makes it the default for its type.
+- **FHRG templates:** add them on the Templates page, or put `.vt2` files in the storage folder `templates/fhrg/`, then open **Admin → Templates**. Ending a file's name in `(Default)` makes it the default for its type. A file with the same name replaces the template, and the toolkit reads it next time it's opened.
+- **Which level a template is for:** open the template, then tick the levels under **Where it can be used**.
+- **The demonstration:** anyone can open `/demo` without an account. It uses Northbridge, a fictional authority, runs in the browser and saves nothing. To turn it off, add a variable `DEMO` set to `off` and click **Update Container**.
 
 ---
 
