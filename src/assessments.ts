@@ -32,14 +32,19 @@ export function cleanSummary(v: any): any {
     if (!Array.isArray(arr)) continue;
     factors[String(k).slice(0, 220)] = arr.slice(0, 5).map(r);
   }
-  const dims = (Array.isArray(v.dims) ? v.dims : []).slice(0, 50).map((d: any) => ({
+  const dimsOf = (list: unknown) => (Array.isArray(list) ? list : []).slice(0, 50).map((d: any) => ({
     name: cleanText(d?.name, 150), score: r(d?.score), conf: r(d?.conf), opp: r(d?.opp), share: r(d?.share), factors: r(d?.factors), answered: r(d?.answered),
   })).filter((d: any) => d.name);
+  const totalsOf = (x: any) => { const t = x && typeof x === "object" ? x : {}; return { score: r(t.score), conf: r(t.conf), opp: r(t.opp) }; };
+  const dims = dimsOf(v.dims);
   const t = v.totals && typeof v.totals === "object" ? v.totals : {};
+  // an assessment whose weightings differ from its template's: its scores on the template's, which benchmarks use
+  const tpl = v.template && typeof v.template === "object" ? { totals: totalsOf(v.template.totals), dims: dimsOf(v.template.dims) } : null;
   return {
     v: 1, type: cleanText(v.type, 100), year: cleanText(v.year, 20), authorityProfile: cleanText(v.authorityProfile, 100), weighting: v.weighting === "tree" ? "tree" : "simple",
     totals: { score: r(t.score), conf: r(t.conf), opp: r(t.opp) }, answeredScore: r(v.answeredScore), completeness: r(v.completeness),
     factorCount: r(v.factorCount), answered: r(v.answered), dims, factors, network: r(v.network), budget: r(v.budget), population: r(v.population),
+    ...(tpl ? { template: tpl } : {}),
   };
 }
 

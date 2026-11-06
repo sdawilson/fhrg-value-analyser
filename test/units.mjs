@@ -55,6 +55,16 @@ await test("averages: mean, median and counts", () => {
   assert.equal(X.aggregate([peer(10), peer(20), peer(60)], "median", 3).totals.score, 20);
   assert.equal(mean.factors.a.n, 3);
 });
+await test("an assessment whose weightings differ from its template's counts on the template's", () => {
+  const changed = { ...peer(90), template: { totals: { score: 30, conf: 10, opp: 20 }, dims: [{ name: "Economy", score: 30, conf: 1, opp: 2 }] } };
+  const b = X.aggregate([changed, peer(30), peer(30)], "mean", 3);
+  assert.equal(b.totals.score, 30);
+  assert.equal(b.dims[0].score, 30);
+  assert.equal(b.factors.a.score, 50, "answers count as they are");
+  const kept = X.cleanSummary({ ...changed, template: { totals: { score: "30", conf: 10, opp: 20, extra: 1 }, dims: [{ name: "Economy", score: 30 }, { score: 5 }], junk: 1 } });
+  assert.deepEqual(kept.template, { totals: { score: 30, conf: 10, opp: 20 }, dims: [{ name: "Economy", score: 30, conf: null, opp: null, share: null, factors: null, answered: null }] });
+  assert.equal(X.cleanSummary(peer(30)).template, undefined);
+});
 await test("a factor or dimension too few have answered isn't shown", () => {
   const list = [peer(10, { only: [99, 1, 2] }), peer(20), peer(60)];
   list[0].dims.push({ name: "Bespoke", score: 88, conf: 1, opp: 2 });
