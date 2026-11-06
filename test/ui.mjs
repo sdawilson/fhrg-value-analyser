@@ -481,6 +481,57 @@ await test("the template names are clean", () => {
   const names = Array.from(w.eval("STARTERS")).flatMap((s) => Array.from(s.rows).map((r) => r[2]));
   assert.deepEqual(names.filter((n) => / \? /.test(n)), []);
 });
+// ----- factors that don't apply
+await test("a factor that doesn't apply is weighted 0 while locked, left out, and keeps its weighting to come back", () => {
+  const d = VA.clone(lockedDoc), c = VA.calculate(d);
+  const i = d.rows.findIndex((r, k) => c.rows[k].scored && c.rows[k].answered), w0 = d.rows[i].weight;
+  VA.setNotApplicable(d, i, true);
+  assert.equal(d.rows[i].weight, 0); assert.equal(d.rows[i].score, ""); assert.equal(d.weightsLocked, true);
+  assert.equal(VA.calculate(d).factors, c.factors - 1, "left out of the scores");
+  const text = VA.write(d, {});
+  assert.match(text, /Not Applicable:= /); assert.doesNotMatch(text, /Weightings Locked/);
+  const back = VA.parse(text, "a.va2").doc;
+  assert.equal(back.rows[i].na, true); assert.equal(back.rows[i].naWeight, w0);
+  assert.equal(VA.summarise(back).template, undefined, "nothing extra to compare");
+  back.weightsLocked = false; back.templateWeights = VA.weightSnapshot(back);
+  assert.equal(VA.weightsDiffer(back), false, "unlocking keeps the template's weighting aside");
+  VA.restoreTemplateWeights(back);
+  assert.equal(back.rows[i].weight, 0, "locking again leaves it out still");
+  VA.setNotApplicable(back, i, false);
+  assert.equal(back.rows[i].weight, w0); assert.equal(back.rows[i].na, false);
+  assert.equal(VA.weightsDiffer(back), false, "unmarked, it's at the template's weighting again");
+  const z = VA.clone(lockedDoc), k = z.rows.findIndex((r) => r.range);
+  z.rows[k].weight = 0; VA.setNotApplicable(z, k, true); VA.setNotApplicable(z, k, false);
+  assert.equal(z.rows[k].weight, 0, "a factor the template weights 0 comes back at 0");
+  const tpl = VA.toTemplate(VA.parse(text, "a.va2").doc);
+  assert.equal(tpl.rows[i].weight, w0, "a template made from it has the weighting back");
+});
+await test("on the scorecard, marking a factor as not applying keeps the weightings locked", async () => {
+  const leave = () => { const d = w.document.querySelector("dialog.ask[open]"); if (d && /Leave without saving/.test(d.textContent)) d.querySelector("button[value=ok]").click(); };
+  leave(); w.location.hash = `/a/${carbonId()}/scorecard`;
+  await wait(() => (leave(), lockBox() && /Carbon Best Practice 2025-26/.test(w.document.querySelector("#ws-title")?.textContent || "")), "the scorecard");
+  assert.equal(lockBox().checked, true);
+  const s = rowsWith("score").find((x) => valueOf(x) !== null), i = s.closest(".f-row").dataset.i;
+  const row = () => sc().querySelector(`.f-row[data-i="${i}"]`);
+  const before = row().querySelector('select[data-k="weight"]').value;
+  row().querySelector(`[data-more="${i}"]`).click();
+  await wait(() => sc().querySelector(`[data-drawer="${i}"] [data-na]`), "the factor's notes");
+  const box = sc().querySelector(`[data-drawer="${i}"] [data-na]`);
+  box.checked = true; box.dispatchEvent(new w.Event("change", { bubbles: true }));
+  await wait(() => w.document.querySelector("dialog.ask[open]"), "the question");
+  assert.match(w.document.querySelector("dialog.ask[open]").textContent, /answers cleared/);
+  w.document.querySelector("dialog.ask[open] button[value=ok]").click();
+  await wait(() => row()?.classList.contains("na"), "the factor to be marked");
+  assert.ok(row().querySelector(".na-chip")); assert.equal(row().querySelector('select[data-k="score"]').disabled, true);
+  assert.equal(lockBox().checked, true, "still locked");
+  const text = await saveAndRead();
+  assert.match(text, /Not Applicable:= /); assert.doesNotMatch(text, /Weightings Locked/);
+  const box2 = sc().querySelector(`[data-drawer="${i}"] [data-na]`);
+  box2.checked = false; box2.dispatchEvent(new w.Event("change", { bubbles: true }));
+  await wait(() => row() && !row().classList.contains("na"), "the factor to apply again");
+  assert.equal(row().querySelector('select[data-k="weight"]').value, before, "its weighting is back");
+  assert.doesNotMatch(await saveAndRead(), /Not Applicable/);
+});
 // ----- services, and copying a template to another service or level
 const acceptLeave = () => { const d = w.document.querySelector("dialog.ask[open]"); if (d && /Leave without saving/.test(d.textContent)) d.querySelector("button[value=ok]").click(); };
 const demoCall = async (path, body = {}) => JSON.parse(await w.eval(`(async () => JSON.stringify(await Demo.call(${JSON.stringify(path)}, ${JSON.stringify(body)})))()`));

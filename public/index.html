@@ -522,6 +522,11 @@ select.pending { border-color: #c98f16; border-style: dashed; }
 .f-row select.w:disabled:not([class*=" n"]) { background-color: transparent; }
 .lock-box { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.92rem; }
 .lock-box .check { margin: 0; }
+/* a factor that doesn't apply here */
+.f-row.na .nm, .f-row.na .c-id { color: var(--ink-soft); }
+.na-cell { text-align: center; } .na-chip { display: inline-block; font-size: 0.78rem; font-weight: 600; color: var(--ink-soft); background: var(--paper); border: 1px dashed var(--mist); border-radius: 6px; padding: 0.2rem 0.45rem; line-height: 1.2; }
+.na-box { border: 1px solid var(--haze); background: var(--white); border-radius: 8px; padding: 0.6rem 0.75rem; }
+.f-row.na select:disabled { opacity: 0.45; cursor: not-allowed; }
 .hidden-tpls { margin-top: 1.25rem; } .hidden-tpls summary { cursor: pointer; font-weight: 700; color: var(--navy-deep); } .hidden-tpls ul { margin: 0.5rem 0 0; padding-left: 1.2rem; } .hidden-tpls li { margin: 0.3rem 0; }
 .copy-changes { max-height: 16rem; overflow: auto; margin: 0.5rem 0 0; padding-left: 1.2rem; font-size: 0.88rem; } .copy-changes li { margin: 0.2rem 0; } .copy-changes del { color: var(--ink-soft); }
 .lock-box .totals-box { order: 9; margin-left: auto; }
@@ -533,7 +538,7 @@ select.pending { border-color: #c98f16; border-style: dashed; }
   .f-row .c-id { grid-area: id; } .f-row .c-name { grid-area: name; } .f-row .more { grid-area: more; }
   .f-row .ctl { grid-area: ctl; display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 0.5rem; }
   .f-row .pri { align-items: stretch; text-align: left; } .f-row .pri .lbl-mobile { display: block; }
-  .f-row .c-t { text-align: left; } .f-row select { text-align: left; text-align-last: auto; }
+  .f-row .c-t, .f-row .na-cell { text-align: left; } .f-row select { text-align: left; text-align-last: auto; }
   .f-row.f-total .ctl > .sp { display: none; }
   .f-row.heading .ctl:empty { display: none; }
   .lbl-mobile { display: block; }
@@ -1009,6 +1014,19 @@ const VA = (() => {
             tws.w[n ? `${base}#${n}` : base] = w === "" || !Number.isFinite(Number(w)) ? null : Number(w);
             break;
           }
+          // a factor marked as not applying: Not Applicable:= <ID>|e|<dimension>|e|<factor>|e|<the weighting it had>
+          const na = trimmed.match(/^Not Applicable:= ?(.*)$/);
+          if (na) {
+            const parts = na[1].split("|e|");
+            if (parts.length < 4) break;
+            const w = parts.pop().trim(), id = parts.shift().trim(), dimension = parts.shift().replace(/<lf>/g, "\n");
+            const idv = id !== "" && Number.isFinite(Number(id)) ? Number(id) : id;
+            const base = weightKey({ id: idv, dimension, factor: parts.join("|e|").replace(/<lf>/g, "\n") });
+            const seen = (doc._naSeen ??= {}), n = seen[base] || 0;
+            seen[base] = n + 1;
+            (doc._na ??= {})[n ? `${base}#${n}` : base] = w === "" || !Number.isFinite(Number(w)) ? null : Number(w);
+            break;
+          }
           const svc = trimmed.match(/^Template Service:= ?(.*)$/);
           if (svc) { doc.service = svc[1].trim(); break; }
           const m = trimmed.match(/^Template (Levels|Description):= ?(.*)$/);
@@ -1031,6 +1049,12 @@ const VA = (() => {
     }
     delete doc._tableFound;
     if (!doc.rows.length) warnings.push("The file has no factors.");
+    // factors marked as not applying: only while their weighting is still 0 (the Excel tool may have changed it)
+    if (doc._na) {
+      const keys = weightKeys(doc.rows);
+      doc.rows.forEach((r, i) => { if (hasOwn(doc._na, keys[i]) && r.range && !(isNum(r.weight) && r.weight > 0)) { r.na = true; r.naWeight = doc._na[keys[i]]; } });
+    }
+    delete doc._na; delete doc._naSeen;
     // a copy of the template's weightings only means something while they're unlocked
     if (doc.templateWeights) delete doc.templateWeights.seen;
     if (doc.weightsLocked !== false) doc.templateWeights = null;
@@ -1439,6 +1463,11 @@ const VA = (() => {
         settings.push(`   Template Weighting:= ${text(r.id ?? "")}|e|${text(r.dimension)}|e|${text(r.factor)}|e|${isNum(tw.w[k]) ? vbaNum(tw.w[k]) : ""}`);
       });
     }
+    // factors that don't apply here, with the weighting each had, so it can come back
+    if (doc.kind !== "template" && doc.rows.some((r) => r.na)) {
+      const keys = weightKeys(doc.rows), text = (x) => flat(cellText(x));
+      doc.rows.forEach((r, i) => { if (r.na) settings.push(`   Not Applicable:= ${text(r.id ?? "")}|e|${text(r.dimension)}|e|${text(r.factor)}|e|${isNum(r.naWeight) ? vbaNum(r.naWeight) : ""}`); });
+    }
     if (settings.length) out.push("Begin Template Settings", ...settings, "End Section");
     for (const s of doc.extraSections || []) out.push(`Begin ${s.name}`, ...s.lines, "End Section");
     return out.join("\r\n") + "\r\n";
@@ -1481,6 +1510,8 @@ const VA = (() => {
     t.summaryLines = [];
     t.templateWeights = null;
     for (const r of t.rows) {
+      if (r.na) { r.weight = isNum(r.naWeight) ? r.naWeight : 100; }
+      delete r.na; delete r.naWeight;
       r.score = ""; r.conf = ""; r.opp = ""; r.scoreOv = null; r.confOv = null; r.oppOv = null; r.comment = "";
       r.notes = {}; r.fileBench = null;
     }
@@ -1491,8 +1522,23 @@ const VA = (() => {
   // dimension and overall scores can be put back on them to compare like for like with a benchmark.
   function weightSnapshot(doc) {
     const w = {}, keys = weightKeys(doc.rows);
-    doc.rows.forEach((r, i) => (w[keys[i]] = isNum(r.weight) ? r.weight : null));
+    doc.rows.forEach((r, i) => (w[keys[i]] = r.na ? (isNum(r.naWeight) ? r.naWeight : null) : isNum(r.weight) ? r.weight : null));
     return { method: doc.weighting === "tree" ? "tree" : "simple", w };
+  }
+  // Marking a factor as not applying here, with the weightings locked or not: its weighting becomes 0 and its answers
+  // are cleared, so it's left out of the scores and of comparisons. Unmarking brings back the weighting it had.
+  function setNotApplicable(doc, i, on) {
+    const r = doc.rows[i];
+    if (!r || !r.range) return doc;
+    if (on && !r.na) {
+      r.naWeight = isNum(r.weight) ? r.weight : isNum(r.naWeight) ? r.naWeight : null;
+      r.na = true; r.weight = 0;
+      r.score = ""; r.conf = ""; r.opp = ""; r.scoreOv = null; r.confOv = null; r.oppOv = null;
+    } else if (!on && r.na) {
+      r.na = false; r.weight = isNum(r.naWeight) ? r.naWeight : null;
+      delete r.naWeight;
+    }
+    return doc;
   }
   // A factor that doesn't apply: weighted 0 (or not at all) and left unanswered, as the templates' guidance asks for
   // a "Where Applicable" factor that isn't. Comparisons leave it out, as the authority has, rather than score it 0.
@@ -1500,7 +1546,7 @@ const VA = (() => {
   // the template's weighting for each row: as it was, or (for comparing) kept out where the factor doesn't apply
   function templateWeightOf(doc, forComparing) {
     const t = doc.templateWeights, keys = weightKeys(doc.rows);
-    return doc.rows.map((r, i) => (forComparing && notApplicable(r) ? (isNum(r.weight) ? r.weight : null) : hasOwn(t.w, keys[i]) ? (isNum(t.w[keys[i]]) ? t.w[keys[i]] : null) : isNum(r.weight) ? r.weight : null));
+    return doc.rows.map((r, i) => ((r.na || forComparing) && notApplicable(r) ? (isNum(r.weight) ? r.weight : null) : hasOwn(t.w, keys[i]) ? (isNum(t.w[keys[i]]) ? t.w[keys[i]] : null) : isNum(r.weight) ? r.weight : null));
   }
   // whether an unlocked assessment's weightings differ from its template's (for comparing: other than factors
   // that don't apply)
@@ -1691,7 +1737,7 @@ const VA = (() => {
     WEIGHTS_SIMPLE, WEIGHTS_EXPANDED, PALETTE,
     isNum, clean, norm, bracketValue, answerLabel, excelColour, cssToExcel, vbaNum, readNum,
     decodeBytes, encodeCp1252, parse, write, blankDoc, headingFlags, dimensions, factorKey, scaleFor, allScales, renumber,
-    calculate, treeWeights, toTemplate, fromTemplate, clone, swapWords, swapService, DEFAULT_SERVICE, weightKey, weightKeys, weightSnapshot, weightsDiffer, restoreTemplateWeights, onTemplateWeights, guidanceFor, answerName, LEVELS, levelsOf, summarise, structureKey, aggregate, stamp, ukDate,
+    calculate, treeWeights, toTemplate, fromTemplate, clone, setNotApplicable, swapWords, swapService, DEFAULT_SERVICE, weightKey, weightKeys, weightSnapshot, weightsDiffer, restoreTemplateWeights, onTemplateWeights, guidanceFor, answerName, LEVELS, levelsOf, summarise, structureKey, aggregate, stamp, ukDate,
   };
 })();
 
@@ -3311,6 +3357,7 @@ function rowSub(i) {
   const bits = [];
   if (r.range) bits.push(esc(r.range));
   if (A.ws.doc.weighting === "tree") { if (isNum(x.treeWeight)) bits.push(`${pct(x.treeWeight, 1)} of the total`); }
+  else if (r.na) bits.push("doesn't apply here");
   else if (isNum(r.weight)) bits.push(r.weight === 0 ? "not weighted" : `${pct(x.rowWeight, 0)} of dimension`);
   else bits.push("no weighting: not scored");
   return bits.join(" · ");
@@ -3437,17 +3484,19 @@ function rowHtml(i, top) {
   const hasNote = !!(r.comment || Object.keys(r.notes || {}).length || isNum(r.scoreOv) || isNum(r.confOv) || isNum(r.oppOv));
   const open = ws.open.has(i);
   const pending = isNum(r.weight) && r.weight > 0;
-  return `<div class="f-row ${open ? "open" : ""}" data-i="${i}">
+  const na = r.na ? "disabled" : "";
+  return `<div class="f-row ${open ? "open" : ""} ${r.na ? "na" : ""}" data-i="${i}">
     <span class="c-id">${esc(r.id ?? "")}</span>
     <span class="c-name" style="${pad}"><span class="nm">${esc(r.factor)}</span><span class="sub" data-sub>${rowSub(i)}</span>${VA.guidanceFor(doc, r) ? `<button class="guide-btn" type="button" data-guide="${i}">Scoring guidance</button>` : ""}</span>
     <span class="ctl">
-      <label><span class="lbl-mobile">Weighting</span><select class="w ${shade(r.weight)}" data-k="weight" aria-label="Weighting for ${esc(r.factor)}" ${doc.weightsLocked !== false ? "disabled" : ""}>${weightOptions(r.weight)}</select></label>
-      <label><span class="lbl-mobile">Performance</span><select data-k="score" class="${tint(sv)} ${!r.score && pending ? "pending" : ""}" aria-label="Performance for ${esc(r.factor)}">${answerOptions(scale, r.score)}</select></label>
+      ${r.na ? `<span class="na-cell"><span class="lbl-mobile">Weighting</span><span class="na-chip" title="This factor doesn't apply here: see its Notes">Doesn't apply</span></span>`
+        : `<label><span class="lbl-mobile">Weighting</span><select class="w ${shade(r.weight)}" data-k="weight" aria-label="Weighting for ${esc(r.factor)}" ${doc.weightsLocked !== false ? "disabled" : ""}>${weightOptions(r.weight)}</select></label>`}
+      <label><span class="lbl-mobile">Performance</span><select data-k="score" class="${tint(sv)} ${!r.score && pending ? "pending" : ""}" aria-label="Performance for ${esc(r.factor)}" ${na}>${answerOptions(scale, r.score)}</select></label>
       <span class="c-b" data-bench>${benchCell(i)}</span>
       <span class="c-t" data-tdim><span class="lbl-mobile">Dimension total</span><span class="tv">${f1(rowTotals(i).dim)}</span></span>
       <span class="c-t" data-tall><span class="lbl-mobile">Assessment total</span><span class="tv">${f2(rowTotals(i).all)}</span></span>
-      <label><span class="lbl-mobile">Confidence</span><select data-k="conf" class="${tint(cv)}" aria-label="Confidence for ${esc(r.factor)}">${answerOptions(VA.CONFIDENCE, r.conf)}</select></label>
-      <label><span class="lbl-mobile">Opportunity</span><select data-k="opp" class="${shade(oppValue(r))}" aria-label="Opportunity to improve ${esc(r.factor)}">${answerOptions(VA.OPPORTUNITY, r.opp)}</select></label>
+      <label><span class="lbl-mobile">Confidence</span><select data-k="conf" class="${tint(cv)}" aria-label="Confidence for ${esc(r.factor)}" ${na}>${answerOptions(VA.CONFIDENCE, r.conf)}</select></label>
+      <label><span class="lbl-mobile">Opportunity</span><select data-k="opp" class="${shade(oppValue(r))}" aria-label="Opportunity to improve ${esc(r.factor)}" ${na}>${answerOptions(VA.OPPORTUNITY, r.opp)}</select></label>
       <span class="pri pri-bar ${top.has(i) ? "hi" : ""}" data-pri style="--p:${barShare(x.priority, priorityMax())}" title="Weighted priority"><span class="lbl-mobile">Priority</span><span class="pv">${isNum(x.priority) ? f1(x.priority) : "–"}</span><span class="pbar" aria-hidden="true"><i></i></span></span>
     </span>
     <button class="note-btn more ${hasNote ? "has" : ""}" type="button" data-more="${i}" aria-expanded="${open}">${hasNote ? "Notes ✓" : "Notes"}</button>
@@ -3469,6 +3518,8 @@ function drawerHtml(i) {
   const b = x.bench;
   return `<div class="drawer" data-drawer="${i}">
     <div class="stack-sm">
+      ${r.range ? `<div class="na-box"><label class="check"><input type="checkbox" data-na ${r.na ? "checked" : ""}> <span>This factor doesn't apply here</span></label>
+        <p class="small muted" style="margin:0.2rem 0 0 1.9rem">Its weighting becomes 0 and its answers are cleared, so it's left out of your scores and of comparisons, even with the weightings locked. Untick it to bring back ${isNum(r.naWeight) ? `its weighting of ${esc(r.naWeight)}` : "its weighting"}.</p></div>` : ""}
       <div class="field"><label for="cm-${i}">Comment and evidence</label><textarea id="cm-${i}" data-k="comment" placeholder="What the answer is based on, and what would improve it">${esc(r.comment)}</textarea></div>
       ${notes.map(([col, t]) => `<div class="field"><label for="nt-${i}-${esc(col)}">Excel note on ${esc(col.replace(/_/g, " "))}</label><textarea id="nt-${i}-${esc(col)}" data-note="${esc(col)}" style="min-height:4rem">${esc(t)}</textarea></div>`).join("")}
       <div><h3>Overrides</h3><p class="small muted" style="margin:0 0 0.4rem">A number from 0 to 100 here replaces the answer's score, as the Override columns do in the Excel tool.</p>
@@ -3493,6 +3544,8 @@ function onScChange(e) {
   if (!Number.isInteger(i)) return;
   const r = A.ws.doc.rows[i];
   const k = t.dataset.k;
+  if (t.dataset.na !== undefined) { markNotApplicable(i, t); return; }
+  if (r.na && (k === "weight" || k === "score" || k === "conf" || k === "opp" || t.dataset.ov)) { renderScorecardKeepScroll(); return; }
   if (k === "weight" && A.ws.doc.weightsLocked !== false) { renderScorecardKeepScroll(); return; }
   if (k === "weight") r.weight = t.value === "" ? null : Number(t.value);
   else if (k === "score" || k === "conf" || k === "opp") r[k] = t.value;
@@ -3506,6 +3559,18 @@ function onScChange(e) {
   if (k === "weight") { renderScorecardKeepScroll(); return; }
   refreshRow(i);
   updateNumbers();
+}
+async function markNotApplicable(i, box) {
+  const doc = A.ws.doc, r = doc.rows[i], on = box.checked;
+  const answered = !!(String(r.score || r.conf || r.opp || "").trim() || isNum(r.scoreOv) || isNum(r.confOv) || isNum(r.oppOv));
+  if (on && answered) {
+    box.checked = false;
+    if (!(await confirmBox("This factor doesn't apply?", `"${esc(VA.clean(r.factor))}" will be weighted 0 and its answers cleared, so it's left out of your scores and of comparisons. Its comment is kept.`, "It doesn't apply"))) return;
+  }
+  VA.setNotApplicable(doc, i, on);
+  markDirty();
+  renderScorecardKeepScroll();
+  toast(on ? "Marked as not applying here." : "It applies again, with its weighting back.", 4000);
 }
 function onScInput(e) {
   const t = e.target, dr = t.closest("[data-drawer]");
