@@ -78,7 +78,7 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS va_templates (id INTEGER PRIMARY KEY, scope_id INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL, name_key TEXT NOT NULL,
      profile_type TEXT, description TEXT, file_key TEXT NOT NULL, factors INTEGER, dimensions INTEGER, structure TEXT,
      is_default INTEGER NOT NULL DEFAULT 0, visible INTEGER NOT NULL DEFAULT 1, version INTEGER NOT NULL DEFAULT 1, bytes INTEGER,
-     created TEXT NOT NULL, created_by TEXT, updated TEXT NOT NULL, updated_by TEXT)`,
+     created TEXT NOT NULL, created_by TEXT, updated TEXT NOT NULL, updated_by TEXT, levels TEXT)`,
   `CREATE UNIQUE INDEX IF NOT EXISTS va_templates_name ON va_templates (scope_id, name_key)`,
   `CREATE TABLE IF NOT EXISTS va_assessments (id INTEGER PRIMARY KEY, authority_id INTEGER NOT NULL, name TEXT NOT NULL, name_key TEXT NOT NULL,
      file_key TEXT NOT NULL, profile_type TEXT, reporting_year TEXT, authority_profile TEXT, template_id INTEGER, template_name TEXT, structure TEXT,
@@ -97,6 +97,7 @@ export const SCHEMA = [
 
 export const MIGRATIONS = [
   "ALTER TABLE users ADD COLUMN reset_sent TEXT",
+  "ALTER TABLE va_templates ADD COLUMN levels TEXT",
 ];
 
 let schemaReady: Promise<void> | null = null;

@@ -154,6 +154,39 @@ await test("an authority's template can't be used by another authority's assessm
   await call("/api/assessments/delete", { id: r.id }, cat);
 });
 
+// ----- where templates can be used
+await test("a template that doesn't say which levels it's for is service level", async () => {
+  const t = (await call("/api/templates/list", {}, ann)).templates.find((x) => x.fhrg);
+  assert.equal(t.levels, "service");
+});
+await test("a template's levels can be set, and the list can ask for one level", async () => {
+  const r = await call("/api/templates/save", { name: "Functions only", vt2: va2([[1, "Economy", "One"]]), levels: "function,process" }, bob);
+  expectStatus(r, 200);
+  const at = async (level) => (await call("/api/templates/list", { level }, bob)).templates.map((t) => t.name);
+  assert.ok((await at("function")).includes("Functions only"));
+  assert.ok(!(await at("service")).includes("Functions only"));
+  assert.ok((await at("service")).includes("Value for Money (Highways)"));
+  assert.ok(!(await at("function")).includes("Value for Money (Highways)"));
+  assert.ok((await at("nonsense")).includes("Functions only"), "an unknown level doesn't hide anything");
+  expectStatus(await call("/api/templates/save", { id: r.id, baseVersion: 1, name: "Functions only", vt2: va2([[1, "Economy", "One"]]), levels: "organisation" }, bob), 200);
+  assert.ok((await at("organisation")).includes("Functions only"));
+  expectStatus(await call("/api/templates/delete", { id: r.id }, bob), 200);
+});
+await test("a new template file brings its levels and description with it", async () => {
+  putFile("templates/fhrg/Climate Readiness (Default).vt2", va2([[101, "Governance", "A named owner"]], { type: "Climate Readiness" }) + "Begin Template Settings\r\n   Template Levels:= service\r\n   Template Description:= Ready for a changing climate\r\nEnd Section\r\n");
+  const t = (await call("/api/admin/templates", {}, boss)).templates.find((x) => x.name === "Climate Readiness");
+  assert.equal(t.levels, "service"); assert.equal(t.is_default, true);
+  assert.equal(t.description, "Ready for a changing climate");
+  assert.equal(t.profile_type, "Climate Readiness");
+});
+await test("scoring guidance reaches a member with the template, and stays in its section", async () => {
+  const id = (await call("/api/templates/list", {}, cat)).templates.find((x) => x.name === "Climate Readiness").id;
+  putFile("templates/fhrg/Climate Readiness (Default).vt2", va2([[101, "Governance", "A named owner"]], { type: "Climate Readiness" }) + "Begin Scoring Guidance\r\n  |g|101|e|Description|e|Who answers for it\r\nEnd Section\r\n");
+  const r = await call("/api/templates/get", { id }, cat);
+  assert.match(r.vt2, /Begin Scoring Guidance/);
+  assert.match(r.vt2, /Who answers for it/);
+});
+
 // ----- assessments
 let aid = 0;
 const text = va2([[101, "Economy", "Unit costs – £ per m²"], [201, "Efficiency", "Process time"]]);
@@ -317,6 +350,27 @@ await test("exports reach the FHRG team as Excel-safe CSV", async () => {
 });
 
 // ----- the page and odd requests
+await test("the demonstration needs no sign-in and runs on fictional data, in the browser", async () => {
+  const r = await send("/demo", { method: "GET" });
+  assert.equal(r.status, 200);
+  const t = await r.text();
+  assert.ok(t.includes("const LIVE = false;") && !t.includes("const LIVE = true;"));
+  assert.match(r.headers.get("content-security-policy"), /frame-ancestors 'none'/);
+  assert.equal((await (await send("/api/boot", { method: "GET" })).json()).features.demo, true);
+});
+await test("the demonstration can be turned off", async () => {
+  process.env.DEMO = "off";
+  assert.equal((await send("/demo", { method: "GET" })).status, 404);
+  assert.equal((await (await send("/api/boot", { method: "GET" })).json()).features.demo, false);
+  delete process.env.DEMO;
+});
+await test("the demonstration doesn't depend on any settings", async () => {
+  const keep = process.env.STORAGE_ZONE;
+  delete process.env.STORAGE_ZONE;
+  const r = await send("/demo", { method: "GET" });
+  process.env.STORAGE_ZONE = keep;
+  assert.equal(r.status, 200);
+});
 await test("the page is served live, with its security headers, on any of its paths", async () => {
   for (const path of ["/", "/assessments", "/a/12/report", "/signin"]) {
     const r = await send(path, { method: "GET" });

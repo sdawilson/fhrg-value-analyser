@@ -109,6 +109,18 @@ await test("the sign-in secret is required: there's no fallback made from other 
   assert.deepEqual(X.missingSettings(X.getConfig()), ["SESSION_SECRET"]);
   process.env.SESSION_SECRET = keep;
 });
+await test("a template's levels are read from a list, and a template that doesn't say is service level", () => {
+  assert.equal(X.cleanLevels("service, function"), "service,function");
+  assert.equal(X.cleanLevels(["PROCESS", "organisation"]), "organisation,process");
+  assert.equal(X.cleanLevels(""), "service");
+  assert.equal(X.cleanLevels(null), "service");
+  assert.equal(X.cleanLevels("everywhere"), "service");
+});
+await test("a template's settings are read from its file", () => {
+  const t = va2() + "Begin Template Settings\r\n   Template Levels:= service,function\r\n   Template Description:= About this\r\nEnd Section\r\n";
+  assert.equal(X.headerValue(t, "Template Levels"), "service,function");
+  assert.equal(X.headerValue(t, "Template Description"), "About this");
+});
 await test("peer comparisons can't be set below three authorities", () => {
   process.env.MIN_PEERS = "2";
   assert.equal(X.getConfig().minPeers, 3);
