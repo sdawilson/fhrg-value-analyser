@@ -75,8 +75,8 @@ export async function handleTemplateAction(c: Config, request: Request): Promise
       const bytes = new Uint8Array(await src.arrayBuffer());
       await storagePut(c, key, bytes, VA_TYPE);
       const at = now();
-      stmts.push({ sql: `INSERT INTO va_templates (scope_id, levels, name, name_key, profile_type, description, file_key, factors, dimensions, structure, is_default, visible, version, bytes, created, created_by, updated, updated_by)
-        VALUES (0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 1, ?, ?, ?, ?, ?)`, args: [t.levels, name, name.toLowerCase(), t.profile_type, t.description, key, t.factors, t.dimensions, t.structure, bytes.length, at, me.email, at, me.email] });
+      stmts.push({ sql: `INSERT INTO va_templates (scope_id, levels, service, name, name_key, profile_type, description, file_key, factors, dimensions, structure, is_default, visible, version, bytes, created, created_by, updated, updated_by)
+        VALUES (0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 1, ?, ?, ?, ?, ?)`, args: [t.levels, t.service, name, name.toLowerCase(), t.profile_type, t.description, key, t.factors, t.dimensions, t.structure, bytes.length, at, me.email, at, me.email] });
       break;
     }
     case "delete":

@@ -93,11 +93,18 @@ export const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS va_benchmarks (id INTEGER PRIMARY KEY, name TEXT NOT NULL, description TEXT, profile_type TEXT, reporting_year TEXT,
      authority_profile TEXT, template_name TEXT, structure TEXT, statistic TEXT, members INTEGER, source TEXT NOT NULL DEFAULT 'composite',
      summary TEXT NOT NULL, member_list TEXT, visible INTEGER NOT NULL DEFAULT 1, created TEXT NOT NULL, created_by TEXT, updated TEXT)`,
+  // services: the FHRG's standard list (scope 0), and each authority's own additions
+  `CREATE TABLE IF NOT EXISTS va_services (id INTEGER PRIMARY KEY, scope_id INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL, name_key TEXT NOT NULL, created TEXT NOT NULL, created_by TEXT)`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS va_services_name ON va_services (scope_id, name_key)`,
+  `INSERT OR IGNORE INTO va_services (scope_id, name, name_key, created, created_by) VALUES (0, 'Highways', 'highways', '2026-11-06T00:00:00.000Z', 'toolkit')`,
 ];
 
 export const MIGRATIONS = [
   "ALTER TABLE users ADD COLUMN reset_sent TEXT",
   "ALTER TABLE va_templates ADD COLUMN levels TEXT",
+  "ALTER TABLE va_templates ADD COLUMN service TEXT",
+  "ALTER TABLE va_assessments ADD COLUMN service TEXT",
+  "ALTER TABLE va_benchmarks ADD COLUMN service TEXT",
 ];
 
 let schemaReady: Promise<void> | null = null;
