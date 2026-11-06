@@ -28,7 +28,8 @@ import type { Config } from "./config";
 import { getConfig, missingSettings } from "./config";
 import { DbError } from "./db";
 import { handleDownload, handleExport } from "./downloads";
-import { handleTemplateDelete, handleTemplateGet, handleTemplateList, handleTemplateSave } from "./templates";
+import { handleServiceAdd, handleServiceDelete, handleServiceList } from "./services";
+import { handleTemplateDelete, handleTemplateGet, handleTemplateHide, handleTemplateList, handleTemplateSave } from "./templates";
 import { FriendlyError, escapeHtml, json } from "./util";
 
 const PAGE_HEADERS = {
@@ -82,6 +83,10 @@ export async function handleRequest(request: Request): Promise<Response> {
         case "/api/templates/get": return await handleTemplateGet(c, request);
         case "/api/templates/save": return await handleTemplateSave(c, request);
         case "/api/templates/delete": return await handleTemplateDelete(c, request);
+        case "/api/templates/hide": return await handleTemplateHide(c, request);
+        case "/api/services/list": return await handleServiceList(c, request);
+        case "/api/services/add": return await handleServiceAdd(c, request);
+        case "/api/admin/service-delete": return await handleServiceDelete(c, request);
         case "/api/assessments/list": return await handleAssessmentList(c, request);
         case "/api/assessments/open": return await handleAssessmentOpen(c, request);
         case "/api/assessments/save": return await handleAssessmentSave(c, request);

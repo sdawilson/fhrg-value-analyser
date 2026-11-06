@@ -8,9 +8,10 @@ import type { Row, Stmt } from "./db";
 import { audit, exec, q } from "./db";
 import { VA_TYPE, fileName, storageDelete, storageGet, storagePut, storageText } from "./storage";
 import { FriendlyError, checkName, cleanText, excelDate, json, now, num, readJsonBody, safeParse, ukStamp } from "./util";
-import { checkVaFile, encodeCp1252, structureKey, vaRows } from "./vafile";
+import { listedService } from "./services";
+import { checkVaFile, encodeCp1252, headerValue, structureKey, vaRows } from "./vafile";
 
-export const ASSESSMENT_COLS = "id, authority_id, name, profile_type, reporting_year, authority_profile, template_id, template_name, structure, score, confidence, opportunity, answered_score, completeness, answered, factors, shared, version, bytes, created, created_by, updated, updated_by";
+export const ASSESSMENT_COLS = "id, authority_id, name, profile_type, reporting_year, authority_profile, template_id, template_name, service, structure, score, confidence, opportunity, answered_score, completeness, answered, factors, shared, version, bytes, created, created_by, updated, updated_by";
 
 export async function assessmentFor(c: Config, me: Me, id: number): Promise<Row> {
   const a = (await q(c, `SELECT a.*, au.name AS authority_name, au.slug AS authority_slug FROM va_assessments a JOIN authorities au ON au.id = a.authority_id WHERE a.id = ?`, id))[0];
@@ -113,7 +114,7 @@ export async function handleAssessmentSave(c: Config, request: Request): Promise
   }
   const shared = b.shared === false || b.shared === 0 ? 0 : 1;
   const cols = [name, name.toLowerCase(), key, cleanText(String(b.profileType ?? summary?.type ?? ""), 100) || null, cleanText(String(b.reportingYear ?? summary?.year ?? ""), 20) || null,
-    cleanText(String(b.authorityProfile ?? summary?.authorityProfile ?? ""), 100) || null, templateId, cleanText(b.templateName, 150) || null, structureKey(rows),
+    cleanText(String(b.authorityProfile ?? summary?.authorityProfile ?? ""), 100) || null, templateId, cleanText(b.templateName, 150) || null, await listedService(c, headerValue(text, "Template Service"), authorityId), structureKey(rows),
     summary?.totals?.score ?? null, summary?.totals?.conf ?? null, summary?.totals?.opp ?? null, summary?.answeredScore ?? null, summary?.completeness ?? null,
     summary?.answered ?? null, summary?.factorCount ?? null, shared, summary ? JSON.stringify(summary) : null, bytes.length];
   let newId = id, version = 1;
@@ -122,7 +123,7 @@ export async function handleAssessmentSave(c: Config, request: Request): Promise
     await exec(c, [
       ...(versionStmt ? [versionStmt] : []),
       { sql: `UPDATE va_assessments SET name = ?, name_key = ?, file_key = ?, profile_type = ?, reporting_year = ?, authority_profile = ?, template_id = COALESCE(?, template_id),
-          template_name = COALESCE(?, template_name), structure = ?, score = ?, confidence = ?, opportunity = ?, answered_score = ?, completeness = ?, answered = ?, factors = ?, shared = ?,
+          template_name = COALESCE(?, template_name), service = ?, structure = ?, score = ?, confidence = ?, opportunity = ?, answered_score = ?, completeness = ?, answered = ?, factors = ?, shared = ?,
           summary = ?, bytes = ?, version = ?, updated = ?, updated_by = ? WHERE id = ?`, args: [...cols, version, t, me.email, id] },
       audit(me.email, "va-save-assessment", { id, name, authority: existing.authority_name }),
     ]);
@@ -130,8 +131,8 @@ export async function handleAssessmentSave(c: Config, request: Request): Promise
     if (versionStmt) await pruneVersions(c, id);
   } else {
     const r = await exec(c, [
-      { sql: `INSERT INTO va_assessments (name, name_key, file_key, profile_type, reporting_year, authority_profile, template_id, template_name, structure, score, confidence, opportunity,
-          answered_score, completeness, answered, factors, shared, summary, bytes, authority_id, version, created, created_by, updated, updated_by) VALUES (${new Array(25).fill("?").join(", ")})`,
+      { sql: `INSERT INTO va_assessments (name, name_key, file_key, profile_type, reporting_year, authority_profile, template_id, template_name, service, structure, score, confidence, opportunity,
+          answered_score, completeness, answered, factors, shared, summary, bytes, authority_id, version, created, created_by, updated, updated_by) VALUES (${new Array(26).fill("?").join(", ")})`,
         args: [...cols, authorityId, 1, t, me.email, t, me.email] },
       audit(me.email, b.imported ? "va-import-assessment" : "va-new-assessment", { name, authority: authorityId === me.authorityId ? me.authorityName : authoritySlug }),
     ]);

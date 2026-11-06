@@ -3,6 +3,7 @@ import { getMe } from "./accounts";
 import { assessmentFor } from "./assessments";
 import type { Config } from "./config";
 import { q } from "./db";
+import { cleanService } from "./services";
 import { VA_TYPE, fileName, storageGet } from "./storage";
 import { templateFor } from "./templates";
 import { FriendlyError, csv, excelDate, fileHeaders, now, safeParse, textPage } from "./util";
@@ -43,14 +44,14 @@ export async function handleExport(c: Config, request: Request, which: string): 
   let body: string;
   if (which === "assessments.csv") {
     const rows = await q(c, `SELECT a.*, au.name AS authority_name FROM va_assessments a JOIN authorities au ON au.id = a.authority_id ORDER BY au.name, a.name`);
-    body = csv(["Authority", "Assessment", "Type", "Reporting year", "Authority profile", "Template", "Overall score", "Confidence", "Opportunity", "Score of answered factors", "Complete %", "Factors answered", "Factors", "Shared for benchmarking", "Saved", "Saved by"],
-      rows.map((a) => [a.authority_name, a.name, a.profile_type, a.reporting_year, a.authority_profile, a.template_name, a.score, a.confidence, a.opportunity, a.answered_score,
+    body = csv(["Authority", "Assessment", "Type", "Service", "Reporting year", "Authority profile", "Template", "Overall score", "Confidence", "Opportunity", "Score of answered factors", "Complete %", "Factors answered", "Factors", "Shared for benchmarking", "Saved", "Saved by"],
+      rows.map((a) => [a.authority_name, a.name, a.profile_type, cleanService(a.service), a.reporting_year, a.authority_profile, a.template_name, a.score, a.confidence, a.opportunity, a.answered_score,
         a.completeness === null ? "" : Math.round(a.completeness * 1000) / 10, a.answered, a.factors, a.shared ? "Yes" : "No", excelDate(a.updated), a.updated_by]));
   } else if (which === "dimensions.csv") {
-    const rows = await q(c, `SELECT a.name, a.profile_type, a.reporting_year, a.authority_profile, a.template_name, a.summary, a.updated, au.name AS authority_name FROM va_assessments a JOIN authorities au ON au.id = a.authority_id ORDER BY au.name, a.name`);
+    const rows = await q(c, `SELECT a.name, a.profile_type, a.service, a.reporting_year, a.authority_profile, a.template_name, a.summary, a.updated, au.name AS authority_name FROM va_assessments a JOIN authorities au ON au.id = a.authority_id ORDER BY au.name, a.name`);
     const out: unknown[][] = [];
-    for (const a of rows) for (const d of safeParse(a.summary)?.dims || []) out.push([a.authority_name, a.name, a.profile_type, a.reporting_year, a.authority_profile, a.template_name, d.name, d.score, d.conf, d.opp, d.share, d.answered, d.factors, excelDate(a.updated)]);
-    body = csv(["Authority", "Assessment", "Type", "Reporting year", "Authority profile", "Template", "Dimension", "Score", "Confidence", "Opportunity", "Share of weighting", "Factors answered", "Factors", "Saved"], out);
+    for (const a of rows) for (const d of safeParse(a.summary)?.dims || []) out.push([a.authority_name, a.name, a.profile_type, cleanService(a.service), a.reporting_year, a.authority_profile, a.template_name, d.name, d.score, d.conf, d.opp, d.share, d.answered, d.factors, excelDate(a.updated)]);
+    body = csv(["Authority", "Assessment", "Type", "Service", "Reporting year", "Authority profile", "Template", "Dimension", "Score", "Confidence", "Opportunity", "Share of weighting", "Factors answered", "Factors", "Saved"], out);
   } else return new Response("Not found", { status: 404 });
   return new Response(body, { headers: { "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="value-analyser-${which.replace(".csv", "")}-${now().slice(0, 10)}.csv"`, "cache-control": "no-store" } });
 }

@@ -522,6 +522,8 @@ select.pending { border-color: #c98f16; border-style: dashed; }
 .f-row select.w:disabled:not([class*=" n"]) { background-color: transparent; }
 .lock-box { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; font-size: 0.92rem; }
 .lock-box .check { margin: 0; }
+.hidden-tpls { margin-top: 1.25rem; } .hidden-tpls summary { cursor: pointer; font-weight: 700; color: var(--navy-deep); } .hidden-tpls ul { margin: 0.5rem 0 0; padding-left: 1.2rem; } .hidden-tpls li { margin: 0.3rem 0; }
+.copy-changes { max-height: 16rem; overflow: auto; margin: 0.5rem 0 0; padding-left: 1.2rem; font-size: 0.88rem; } .copy-changes li { margin: 0.2rem 0; } .copy-changes del { color: var(--ink-soft); }
 .lock-box .totals-box { order: 9; margin-left: auto; }
 .lock-warn { color: var(--warn); font-weight: 600; font-size: 0.88rem; }
 .lbl-mobile { display: none; font-size: 0.75rem; color: var(--ink-soft); font-weight: 600; }
@@ -790,6 +792,7 @@ const VA = (() => {
   const PROFILE_TYPES = ["Value for Money (Highways)", "Best Practice Carbon", "Climate Readiness", "Programme & Project", "Options Analysis"];
   // where in an organisation's structure a template can be used
   const LEVELS = [["organisation", "Organisation"], ["service", "Service"], ["function", "Function"], ["process", "Process"]];
+  const DEFAULT_SERVICE = "Highways"; // the service of a template or assessment that doesn't say
   const levelsOf = (v) => { const on = String(v || "service").split(/[,;\s]+/); const list = LEVELS.filter(([k]) => on.includes(k)); return list.length ? list : [LEVELS[1]]; };
   const AUTHORITY_PROFILES = ["Large, Predominantly Rural", "Large, Predominantly Urban", "Large, Mixed", "Medium, Predominantly Rural", "Medium, Predominantly Urban",
     "Medium, Mixed", "Small, Predominantly Rural", "Small, Predominantly Urban", "Small, Mixed"];
@@ -1006,6 +1009,8 @@ const VA = (() => {
             tws.w[n ? `${base}#${n}` : base] = w === "" || !Number.isFinite(Number(w)) ? null : Number(w);
             break;
           }
+          const svc = trimmed.match(/^Template Service:= ?(.*)$/);
+          if (svc) { doc.service = svc[1].trim(); break; }
           const m = trimmed.match(/^Template (Levels|Description):= ?(.*)$/);
           if (m && m[1] === "Levels") doc.levels = m[2].trim();
           else if (m) doc.description = m[2].replace(/<lf>/g, "\n").trim();
@@ -1117,6 +1122,7 @@ const VA = (() => {
       fieldNotes: {},
       guidance: {},
       levels: "",
+      service: "", // the service it's for, such as Highways; none said means Highways
       description: "",
       weightsLocked: true,
       templateWeights: null, // { method, w: {weightKey: weighting} }: the template's, kept while the weightings are unlocked
@@ -1417,6 +1423,8 @@ const VA = (() => {
     const settings = [];
     if (doc.kind === "template" && doc.levels) settings.push(`   Template Levels:= ${doc.levels}`);
     if (doc.kind === "template" && doc.description) settings.push(`   Template Description:= ${flat(doc.description)}`);
+    // the service it's for: an assessment carries its template's
+    if (doc.service) settings.push(`   Template Service:= ${flat(doc.service).replace(/\s+/g, " ").trim()}`);
     if (doc.weightsLocked === false) settings.push("   Weightings Locked:= No");
     // the template's weightings, kept while they're unlocked so scores can be put back on them to compare like for like
     if (doc.weightsLocked === false && doc.kind !== "template" && doc.templateWeights) {
@@ -1518,6 +1526,60 @@ const VA = (() => {
   // the assessment on its template's weightings, for comparing; itself when that makes no difference
   function onTemplateWeights(doc) {
     return weightsDiffer(doc, true) ? restoreTemplateWeights({ ...doc, rows: doc.rows.map((r) => ({ ...r })) }, true) : doc;
+  }
+
+  // ------------------------------------------------------------- copying a template to another service
+  // The service's name, and its singular ("Highways", "highway"), become the new service's name wherever they
+  // appear as words, keeping their capitals.
+  // Names of bodies and laws stay as they are: "Highways England" isn't the highway service.
+  const KEEP_NAMES = ["Highways England", "National Highways", "Highways Agency", "Highways Act", "Highway Code", "Highways Term Maintenance Association"];
+  function swapWords(text, from, to) {
+    const s = String(text ?? "");
+    from = String(from || "").trim(); to = String(to || "").trim();
+    if (!s || !from || !to || from.toLowerCase() === to.toLowerCase()) return s;
+    const forms = [...new Set([from, from.replace(/s$/i, "")])].filter((f) => f.length >= 3).sort((a, b) => b.length - a.length);
+    const re = new RegExp(`(?<![\\p{L}\\p{N}])(${forms.map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})(?![\\p{L}\\p{N}])`, "giu");
+    // mid-sentence, the new name goes into lower case, apart from any acronym in it ("SEN transport")
+    const lower = to.split(/(\s+)/).map((w) => (w.length > 1 && /\p{Lu}/u.test(w) && w === w.toUpperCase() ? w : w.toLowerCase())).join("");
+    const kept = new RegExp(`\\b(?:${KEEP_NAMES.map((n) => n.replace(/ /g, "\\s+")).join("|")})\\b`, "gi");
+    // swap only between the names kept as they are
+    let out = "", at = 0;
+    for (const m of s.matchAll(kept)) { out += swapIn(s.slice(at, m.index)) + m[0]; at = m.index + m[0].length; }
+    return out + swapIn(s.slice(at));
+    function swapIn(part) {
+      return part.replace(re, (m) => (m.length > 1 && m === m.toUpperCase() && m !== m.toLowerCase() ? to.toUpperCase() : m[0] === m[0].toUpperCase() && m[0] !== m[0].toLowerCase() ? to[0].toUpperCase() + to.slice(1) : lower));
+    }
+  }
+  // swaps the service in a template's dimensions, factors, guidance and type; returns what changed, to check
+  function swapService(doc, from, to) {
+    const changes = [];
+    const swap = (where, v, set) => { const n = swapWords(v, from, to); if (n !== String(v ?? "")) { changes.push({ where, before: v, after: n }); set(n); } };
+    const dimMap = {}, dims = dimensions(doc.rows), taken = new Set(dims.map((d) => d.toLowerCase()));
+    for (const d of dims) {
+      const n = swapWords(d, from, to);
+      if (n === d) continue;
+      // two dimensions would become one: keep this one's name, and say so
+      if (taken.has(n.toLowerCase())) { changes.push({ where: "Dimension kept", before: d, after: `"${n}" is already a dimension, so "${d}" keeps its name` }); continue; }
+      taken.add(n.toLowerCase());
+      dimMap[d] = n;
+      changes.push({ where: "Dimension", before: d, after: n });
+    }
+    for (const r of doc.rows) {
+      if (dimMap[r.dimension]) r.dimension = dimMap[r.dimension];
+      swap(r.weight === null && !r.range ? "Heading" : "Factor", r.factor, (n) => (r.factor = n));
+    }
+    const g = {};
+    for (const [k, v] of Object.entries(doc.guidance || {})) {
+      const key = k.startsWith("dim:") && dimMap[k.slice(4)] ? `dim:${dimMap[k.slice(4)]}` : k;
+      const nv = { desc: v.desc || "", levels: { ...(v.levels || {}) } };
+      swap("Guidance", nv.desc, (n) => (nv.desc = n));
+      for (const [label, text] of Object.entries(nv.levels)) swap("Guidance", text, (n) => (nv.levels[label] = n));
+      g[key] = nv;
+    }
+    doc.guidance = g;
+    swap("Type", doc.profile.Profile_Type || "", (n) => (doc.profile.Profile_Type = n));
+    doc.service = to;
+    return changes;
   }
 
   // a new assessment from a template
@@ -1629,7 +1691,7 @@ const VA = (() => {
     WEIGHTS_SIMPLE, WEIGHTS_EXPANDED, PALETTE,
     isNum, clean, norm, bracketValue, answerLabel, excelColour, cssToExcel, vbaNum, readNum,
     decodeBytes, encodeCp1252, parse, write, blankDoc, headingFlags, dimensions, factorKey, scaleFor, allScales, renumber,
-    calculate, treeWeights, toTemplate, fromTemplate, clone, weightKey, weightKeys, weightSnapshot, weightsDiffer, restoreTemplateWeights, onTemplateWeights, guidanceFor, answerName, LEVELS, levelsOf, summarise, structureKey, aggregate, stamp, ukDate,
+    calculate, treeWeights, toTemplate, fromTemplate, clone, swapWords, swapService, DEFAULT_SERVICE, weightKey, weightKeys, weightSnapshot, weightsDiffer, restoreTemplateWeights, onTemplateWeights, guidanceFor, answerName, LEVELS, levelsOf, summarise, structureKey, aggregate, stamp, ukDate,
   };
 })();
 
@@ -1686,7 +1748,10 @@ const Demo = (() => {
     "Baseline established this year; targets to follow.",
     "Benchmarking with neighbouring authorities planned.",
   ];
-  const S = { me: null, role: "lead", templates: [], assessments: [], versions: [], benchmarks: [], log: [], nextId: 100 };
+  const S = { me: null, role: "lead", templates: [], assessments: [], versions: [], benchmarks: [], log: [], nextId: 100,
+    // the FHRG's standard services (the live toolkit starts with Highways; the FHRG adds the rest)
+    services: [{ id: 1, scope_id: 0, name: "Highways" }, { id: 2, scope_id: 0, name: "Transport" }, { id: 3, scope_id: 0, name: "Waste" }] };
+  const svcOf = (x) => String((x && x.service) || "").trim() || VA.DEFAULT_SERVICE;
 
   function docFromStarter(st) {
     const d = VA.blankDoc();
@@ -1735,7 +1800,7 @@ const Demo = (() => {
     a.va2 = VA.write(doc, { organisation: authority.name, user: a.updated_by || "", calc });
     Object.assign(a, {
       profile_type: doc.profile.Profile_Type || null, reporting_year: doc.profile.Profile_Reporting_Year || null, authority_profile: doc.profile.Profile_Authority_Type || null,
-      structure: VA.structureKey(doc), score: summary.totals.score, confidence: summary.totals.conf, opportunity: summary.totals.opp, answered_score: summary.answeredScore,
+      service: svcOf(doc), structure: VA.structureKey(doc), score: summary.totals.score, confidence: summary.totals.conf, opportunity: summary.totals.opp, answered_score: summary.answeredScore,
       completeness: summary.completeness, answered: summary.answered, factors: summary.factorCount, summary, bytes: a.va2.length,
     });
     return a;
@@ -1750,7 +1815,7 @@ const Demo = (() => {
       const text = VA.write(doc, { organisation: "Future Highways Research Group", user: "" });
       S.templates.push({ id: i + 1, scope_id: 0, name: st.name, profile_type: st.type, description: st.description, factors: doc.rows.length,
         dimensions: VA.dimensions(doc.rows).length, structure: VA.structureKey(doc), is_default: !!st.isDefault, visible: true, version: 1, bytes: text.length,
-        created: nowIso(200), created_by: "fhrg.team@example.org", updated: nowIso(30 - i), updated_by: "fhrg.team@example.org", vt2: text, authority_name: null, levels: st.levels || "service" });
+        created: nowIso(200), created_by: "fhrg.team@example.org", updated: nowIso(30 - i), updated_by: "fhrg.team@example.org", vt2: text, authority_name: null, levels: st.levels || "service", service: VA.DEFAULT_SERVICE });
     });
     // one template of Northbridge's own: the options appraisal with its own answer scale
     {
@@ -1763,7 +1828,7 @@ const Demo = (() => {
       doc.rows.push({ id: 601, dimension: "Local Priorities", factor: "Impact on the winter service", tier: 1, bold: false, range: "Excellent To Poor", weight: 75, treeWeight: null, score: "", scoreOv: null, conf: "", confOv: null, opp: "", oppOv: null, comment: "", notes: {}, fmt: {}, fileBench: null, extra: {} });
       doc.rows.push({ id: 602, dimension: "Local Priorities", factor: "Staff travel and welfare", tier: 1, bold: false, range: "Excellent To Poor", weight: 50, treeWeight: null, score: "", scoreOv: null, conf: "", confOv: null, opp: "", oppOv: null, comment: "", notes: {}, fmt: {}, fileBench: null, extra: {} });
       const text = VA.write(doc, { organisation: "Northbridge Council", user: ME_BASE.email });
-      S.templates.push({ id: OWN_TEMPLATE, scope_id: 1, levels: "service", name: "Depot options appraisal", profile_type: "Options Analysis", description: "Our options template for the depot review, with a local priorities dimension.",
+      S.templates.push({ id: OWN_TEMPLATE, scope_id: 1, levels: "service", service: VA.DEFAULT_SERVICE, name: "Depot options appraisal", profile_type: "Options Analysis", description: "Our options template for the depot review, with a local priorities dimension.",
         factors: doc.rows.length, dimensions: VA.dimensions(doc.rows).length, structure: VA.structureKey(doc), is_default: false, visible: true, version: 2, bytes: text.length,
         created: nowIso(60), created_by: ME_BASE.email, updated: nowIso(20), updated_by: ME_BASE.email, vt2: text, authority_name: "Northbridge Council", _doc: doc });
     }
@@ -1814,8 +1879,8 @@ const Demo = (() => {
     S.me = { ...ME_BASE, role: role === "member" ? "member" : "lead", siteAdmin: role === "admin" };
   }
 
-  function latestPeers({ profileType, structure, year, authorityProfile, excludeAuthority }) {
-    const rows = S.assessments.filter((a) => a.shared && a.summary && a.profile_type === profileType && (!structure || a.structure === structure) && (!year || a.reporting_year === year)
+  function latestPeers({ profileType, service, structure, year, authorityProfile, excludeAuthority }) {
+    const rows = S.assessments.filter((a) => a.shared && a.summary && a.profile_type === profileType && svcOf(a).toLowerCase() === svcOf({ service }).toLowerCase() && (!structure || a.structure === structure) && (!year || a.reporting_year === year)
       && (!authorityProfile || a.authority_profile === authorityProfile) && (!excludeAuthority || a.authority_id !== excludeAuthority))
       .sort((a, b) => (a.updated < b.updated ? 1 : -1));
     const seen = new Map();
@@ -1825,7 +1890,7 @@ const Demo = (() => {
 
   const fail = (message, status = 400, extra = {}) => { const e = new Error(message); e.status = status; Object.assign(e, extra); throw e; };
   const pubA = (a, withSummary) => { const { va2, summary, ...rest } = a; return { ...rest, ...(withSummary ? { summary: clone(summary) } : {}) }; };
-  const pubT = (t) => { const { vt2, _doc, ...rest } = t; return { ...rest, fhrg: t.scope_id === 0 }; };
+  const pubT = (t) => { const { vt2, _doc, ...rest } = t; return { ...rest, fhrg: t.scope_id === 0, service: svcOf(t), visible: t.visible !== false }; };
   const mine = (a) => a.authority_id === S.me.authorityId || S.me.siteAdmin;
   const findA = (id) => { const a = S.assessments.find((x) => x.id === Number(id)); if (!a || !mine(a)) fail("That assessment wasn't found. It may have been deleted.", 404); return a; };
   const findT = (id) => { const t = S.templates.find((x) => x.id === Number(id)); if (!t || (t.scope_id !== 0 && t.scope_id !== S.me.authorityId && !S.me.siteAdmin)) fail("That template isn't available.", 404); return t; };
@@ -1842,7 +1907,38 @@ const Demo = (() => {
     if (!S.me) fail("Please sign in with your FHRG account.", 401);
     switch (path) {
       case "/api/templates/list":
-        return { templates: S.templates.filter((t) => (t.scope_id === 0 && t.visible) || t.scope_id === S.me.authorityId).map((t) => ({ ...pubT(t), used: S.assessments.filter((a) => a.template_id === t.id && a.authority_id === S.me.authorityId).length })) };
+        return { templates: S.templates.filter((t) => ((t.scope_id === 0 && t.visible) || t.scope_id === S.me.authorityId) && (!b.service || svcOf(t).toLowerCase() === String(b.service).toLowerCase()))
+          .map((t) => ({ ...pubT(t), used: S.assessments.filter((a) => a.template_id === t.id && a.authority_id === S.me.authorityId).length })) };
+      case "/api/templates/hide": {
+        const t = findT(b.id);
+        if (t.scope_id === 0 && !S.me.siteAdmin) fail("Only the FHRG team can change the FHRG's templates. Save a copy for your authority instead.", 403);
+        if (t.scope_id !== 0 && !S.me.siteAdmin && t.created_by !== S.me.email && S.me.role !== "lead") fail("Only the person who created this template, or your authority's lead, can change it.", 403);
+        const hide = b.hidden !== false;
+        if (hide && t.scope_id === 0 && t.is_default) fail("This is the default template for its type, so it stays. Make another template the default first.");
+        t.visible = !hide;
+        log(hide ? "va-hide-template" : "va-show-template", { name: t.name });
+        return { ok: true, visible: t.visible };
+      }
+      case "/api/services/list": {
+        const all = !!b.all && S.me.siteAdmin;
+        const list = S.services.filter((s) => all || s.scope_id === 0 || s.scope_id === S.me.authorityId)
+          .sort((x, y) => (x.scope_id !== 0) - (y.scope_id !== 0) || (x.name !== VA.DEFAULT_SERVICE) - (y.name !== VA.DEFAULT_SERVICE) || x.name.localeCompare(y.name));
+        return { services: list.map((s) => ({ id: s.id, name: s.name, fhrg: s.scope_id === 0, authority_name: all ? authorityName(s.scope_id) || null : undefined, templates: all ? S.templates.filter((t) => svcOf(t).toLowerCase() === s.name.toLowerCase()).length : undefined })) };
+      }
+      case "/api/services/add": {
+        const name = String(b.name || "").replace(/\s+/g, " ").trim();
+        if (name.length < 2 || name.length > 60) fail("Give the service a name of 2 to 60 characters.", 400, { field: "name" });
+        if (/[\\/:*?"<>|]/.test(name)) fail('A service\'s name can\'t contain any of \\ / : * ? " < > |', 400, { field: "name" });
+        if (/[^\u0020-\u007e\u00a0-\u00ff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/u.test(name)) fail("A service's name can only use letters, numbers and punctuation that the Excel tool's files can hold, so no emoji or symbols from other alphabets.", 400, { field: "name" });
+        if (b.scope === "fhrg" && !S.me.siteAdmin) fail("Only the FHRG team can add to the FHRG's services. Add it for your authority instead.", 403);
+        const scope = b.scope === "fhrg" ? 0 : S.me.authorityId;
+        const found = S.services.find((s) => s.name.toLowerCase() === name.toLowerCase() && (s.scope_id === 0 || s.scope_id === scope));
+        if (found) return { service: { id: found.id, name: found.name, fhrg: found.scope_id === 0 }, added: false };
+        const s = { id: S.nextId++, scope_id: scope, name };
+        S.services.push(s);
+        log("va-add-service", { name });
+        return { service: { id: s.id, name, fhrg: scope === 0 }, added: true };
+      }
       case "/api/templates/get": { const t = findT(b.id); return { template: pubT(t), vt2: t.vt2 }; }
       case "/api/templates/save": {
         const name = String(b.name || "").trim();
@@ -1858,7 +1954,7 @@ const Demo = (() => {
         if (scope === 0 && !S.me.siteAdmin) fail("Only the FHRG team can save FHRG templates. Save it for your authority instead.", 403);
         if (S.templates.some((x) => x.scope_id === scope && x.name.toLowerCase() === name.toLowerCase() && x.id !== (t && t.id))) fail(scope === 0 ? "The FHRG already has a template with that name." : "Your authority already has a template with that name.", 409, { field: "name" });
         const doc = VA.parse(b.vt2, "x.vt2").doc;
-        const fields = { name, profile_type: b.profileType || doc.profile.Profile_Type || null, description: b.description || null, levels: b.levels || doc.levels || "service", factors: doc.rows.length, dimensions: VA.dimensions(doc.rows).length,
+        const fields = { name, profile_type: b.profileType || doc.profile.Profile_Type || null, description: b.description || null, levels: b.levels || doc.levels || "service", service: svcOf({ service: b.service || doc.service }), factors: doc.rows.length, dimensions: VA.dimensions(doc.rows).length,
           structure: VA.structureKey(doc), bytes: b.vt2.length, vt2: b.vt2, updated: nowIso(0), updated_by: S.me.email };
         delete fields._doc;
         if (t) { Object.assign(t, fields, { version: t.version + 1 }); delete t._doc; log("va-save-template", { name }); return { saved: true, id: t.id, version: t.version, updated: t.updated, updated_by: t.updated_by, scope_id: t.scope_id }; }
@@ -1915,7 +2011,7 @@ const Demo = (() => {
       case "/api/assessments/share": { const a = findA(b.id); a.shared = !!b.shared; return { ok: true, shared: a.shared }; }
       case "/api/assessments/versions": { const a = findA(b.id); return { versions: S.versions.filter((v) => v.assessment_id === a.id).map(({ va2, ...v }) => v), keep: 10 }; }
       case "/api/assessments/restore": { const a = findA(b.id); const v = S.versions.find((x) => x.id === Number(b.versionId) && x.assessment_id === a.id); if (!v) fail("That earlier version wasn't found.", 404); return { va2: v.va2, version: v }; }
-      case "/api/benchmarks/list": return { benchmarks: S.benchmarks.filter((x) => x.visible).map(({ summary, member_list, ...r }) => r) };
+      case "/api/benchmarks/list": return { benchmarks: S.benchmarks.filter((x) => x.visible).map(({ summary, member_list, ...r }) => ({ ...r, service: svcOf(r) })) };
       case "/api/benchmarks/get": {
         const r = S.benchmarks.find((x) => x.id === Number(b.id));
         if (!r || (!r.visible && !S.me.siteAdmin)) fail("That benchmark isn't available.", 404);
@@ -1925,7 +2021,7 @@ const Demo = (() => {
       case "/api/benchmarks/peers": {
         const a = findA(b.assessmentId);
         if (!a.profile_type) fail("Choose the assessment's type on the Profile tab, and save it, to compare it with other authorities.");
-        const filters = { profileType: a.profile_type, structure: b.sameTemplate === false ? "" : a.structure, year: b.sameYear ? a.reporting_year : "", authorityProfile: b.sameProfile ? a.authority_profile : "", excludeAuthority: a.authority_id };
+        const filters = { profileType: a.profile_type, service: svcOf(a), structure: b.sameTemplate === false ? "" : a.structure, year: b.sameYear ? a.reporting_year : "", authorityProfile: b.sameProfile ? a.authority_profile : "", excludeAuthority: a.authority_id };
         const peers = latestPeers(filters);
         if (peers.length < 3) return { ok: false, count: peers.length, minPeers: 3, message: `${peers.length ? `Only ${peers.length} other authorit${peers.length === 1 ? "y has" : "ies have"}` : "No other authority has"} shared a matching assessment. At least 3 are needed before averages are shown, so no authority's own answers can be worked out.` };
         return { ok: true, count: peers.length, minPeers: 3, filters, benchmark: VA.aggregate(peers.map((p) => p.summary), b.statistic === "median" ? "median" : "mean") };
@@ -1969,20 +2065,20 @@ const Demo = (() => {
       case "/api/admin/benchmarks": {
         const groups = {};
         for (const a of S.assessments.filter((x) => x.shared && x.summary)) {
-          const k = [a.profile_type, a.reporting_year, a.authority_profile, a.structure].join("|");
-          (groups[k] ||= { profile_type: a.profile_type, reporting_year: a.reporting_year, authority_profile: a.authority_profile, template_name: a.template_name, structure: a.structure, auth: new Set() }).auth.add(a.authority_id);
+          const k = [a.profile_type, svcOf(a).toLowerCase(), a.reporting_year, a.authority_profile, a.structure].join("|");
+          (groups[k] ||= { profile_type: a.profile_type, service: svcOf(a), reporting_year: a.reporting_year, authority_profile: a.authority_profile, template_name: a.template_name, structure: a.structure, auth: new Set() }).auth.add(a.authority_id);
         }
         return { benchmarks: clone(S.benchmarks), options: Object.values(groups).map(({ auth, ...g }) => ({ ...g, authorities: auth.size })) };
       }
       case "/api/admin/benchmark-build": {
         const type = b.profile_type;
         if (!type) fail("Choose an assessment type.", 400, { field: "profile_type" });
-        const peers = latestPeers({ profileType: type, year: b.reporting_year, authorityProfile: b.authority_profile, structure: b.structure });
+        const peers = latestPeers({ profileType: type, service: b.service, year: b.reporting_year, authorityProfile: b.authority_profile, structure: b.structure });
         const min = Math.max(1, Number(b.min_members) || 3);
         if (peers.length < min) fail(`Only ${peers.length} authorit${peers.length === 1 ? "y has" : "ies have"} shared a matching assessment. At least ${min} are needed.`);
         const statistic = b.statistic === "median" ? "median" : "mean";
         const id = S.nextId++;
-        S.benchmarks.push({ id, name: b.name || `${type}${b.reporting_year ? " " + b.reporting_year : ""} benchmark`, description: `${statistic === "median" ? "Median" : "Mean"} of ${peers.length} authorities`, profile_type: type,
+        S.benchmarks.push({ id, name: b.name || `${type}${b.reporting_year ? " " + b.reporting_year : ""} benchmark`, description: `${statistic === "median" ? "Median" : "Mean"} of ${peers.length} authorities`, profile_type: type, service: svcOf(b),
           reporting_year: b.reporting_year || null, authority_profile: b.authority_profile || null, template_name: b.template_name || null, structure: b.structure || null, statistic, members: peers.length, source: "composite",
           summary: VA.aggregate(peers.map((p) => p.summary), statistic), member_list: peers.map((p) => ({ authority: authorityName(p.authority_id), name: p.name, year: p.reporting_year, saved: p.updated })),
           visible: b.visible !== false, created: nowIso(0), created_by: S.me.email, updated: nowIso(0) });
@@ -2001,6 +2097,15 @@ const Demo = (() => {
         return { saved: true, id };
       }
       case "/api/admin/benchmark-delete": S.benchmarks = S.benchmarks.filter((x) => x.id !== Number(b.id)); return { deleted: true };
+      case "/api/admin/service-delete": {
+        const s = S.services.find((x) => x.id === Number(b.id));
+        if (!s) fail("That service wasn't found.", 404);
+        if (s.name.toLowerCase() === VA.DEFAULT_SERVICE.toLowerCase()) fail(`${VA.DEFAULT_SERVICE} is the service a template or assessment has when it doesn't say, so it stays.`);
+        const used = S.templates.filter((t) => svcOf(t).toLowerCase() === s.name.toLowerCase()).length + S.assessments.filter((a) => svcOf(a).toLowerCase() === s.name.toLowerCase()).length;
+        if (used) fail(`${s.name} is used by ${used} template${used === 1 ? "" : "s"} or assessment${used === 1 ? "" : "s"}, so it stays.`);
+        S.services = S.services.filter((x) => x !== s);
+        return { deleted: true };
+      }
       case "/api/admin/activity": {
         const by = {};
         for (const a of S.assessments) { (by[a.authority_id] ||= { name: authorityName(a.authority_id), n: 0, shared: 0, last: "" }); by[a.authority_id].n++; by[a.authority_id].shared += a.shared ? 1 : 0; if (a.updated > by[a.authority_id].last) by[a.authority_id].last = a.updated; }
@@ -2578,7 +2683,7 @@ function renderAccount() {
   $("#signout").addEventListener("click", async () => {
     if (!(await leaveOk())) return;
     await api("/api/logout");
-    A.me = null; A.ws = null; A.te = null; A.templates = null; A.assessments = null;
+    A.me = null; A.ws = null; A.te = null; A.templates = null; A.assessments = null; A.services = null;
     renderAccount();
     go("/signin", true);
     toast("You've signed out.");
@@ -2595,7 +2700,7 @@ function demoBar() {
   $("#demo-role").addEventListener("change", async (e) => {
     Demo.setRole(e.target.value);
     await boot();
-    A.templates = null; A.assessments = null;
+    A.templates = null; A.assessments = null; A.services = null;
     renderAccount();
     route();
   });
@@ -2710,6 +2815,17 @@ async function templates(force = false) {
   if (!A.templates || force) A.templates = (await api("/api/templates/list")).templates;
   return A.templates;
 }
+// the services templates and assessments can be for: the FHRG's, then the authority's own
+async function services(force = false) {
+  if (!A.services || force) {
+    try { A.services = (await api("/api/services/list")).services; } catch { A.services = [{ id: 0, name: VA.DEFAULT_SERVICE, fhrg: true }]; }
+  }
+  return A.services;
+}
+const svcName = (x) => String((x && x.service) || "").trim() || VA.DEFAULT_SERVICE;
+// text the workbook's encoding (Windows-1252) can hold
+const fitsFile = (s) => !/[^\u0020-\u007e\u00a0-\u00ff€‚ƒ„…†‡ˆ‰Š‹ŒŽ‘’“”•–—˜™š›œžŸ]/u.test(String(s));
+const levelsText = (levels) => VA.levelsOf(levels).map(([, l]) => l).join(", ");
 async function assessments(force = false) {
   if (!A.assessments || force) A.assessments = (await api("/api/assessments/list", { withSummary: true })).assessments;
   return A.assessments;
@@ -2746,6 +2862,8 @@ function pageSignin(q) {
     await busy(btn, async () => {
       try {
         await api("/api/login", { email: f.email.value, password: f.password.value, remember: f.remember.checked });
+        // nothing from whoever used this tab before
+        A.templates = null; A.assessments = null; A.services = null; A.ws = null; A.te = null;
         await boot();
         if (!A.me) { notice($("#msg"), "error", "Your password was right, but this browser didn't keep the sign-in. Check that cookies aren't blocked for this site, then try again."); return; }
         renderAccount();
@@ -2828,9 +2946,9 @@ async function pageNew(q) {
   const tpls = await templates(true);
   const pick = q && q.get("template") ? tpls.find((t) => String(t.id) === q.get("template")) : null;
   if (pick) return newForm(pick);
-  const fh = tpls.filter((t) => t.fhrg), own = tpls.filter((t) => !t.fhrg);
+  const fh = tpls.filter((t) => t.fhrg), own = tpls.filter((t) => !t.fhrg && t.visible !== false);
   const card = (t) => `<article class="tcard"><div class="row" style="justify-content:space-between"><span class="chip">${esc(t.profile_type || "Any type")}</span>${t.is_default ? `<span class="chip navy">FHRG standard</span>` : ""}</div>
-    <h3>${esc(t.name)}</h3>${t.description ? `<p>${esc(t.description)}</p>` : ""}<p class="small">${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")} · ${VA.levelsOf(t.levels).map(([, l]) => l).join(", ")} level</p>
+    <h3>${esc(t.name)}</h3>${t.description ? `<p>${esc(t.description)}</p>` : ""}<p class="small"><strong>${esc(svcName(t))}</strong> · ${esc(levelsText(t.levels))} level · ${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")}</p>
     <div class="row"><a class="btn small" href="${href(`/new?template=${t.id}`)}" data-nav>Use this template</a><a class="btn small quiet" href="${href(`/templates/${t.id}`)}" data-nav>Look inside</a></div></article>`;
   main().innerHTML = page("New assessment", `
     <h2 class="h3">FHRG templates</h2><div class="cards">${fh.map(card).join("") || `<div class="empty">No FHRG templates yet.</div>`}</div>
@@ -2847,7 +2965,7 @@ async function newForm(t) {
   main().innerHTML = page("New assessment", `<div class="grid-2"><form class="form" id="nf" novalidate>
     <div id="nf-msg"></div>
     <div class="field"><label for="nf-name">Assessment name</label><p class="hint">It becomes the file's name, so it can't contain \\ / : * ? " &lt; &gt; |</p><input id="nf-name" name="name" type="text" value="${esc(suggested)}" required></div>
-    <div class="row2"><div class="field"><label for="nf-type">Assessment type</label><select id="nf-type" name="type">${VA.PROFILE_TYPES.map((x) => `<option ${x === typeDefault ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
+    <div class="row2"><div class="field"><label for="nf-type">Assessment type</label><select id="nf-type" name="type">${[...new Set([typeDefault, ...VA.PROFILE_TYPES])].map((x) => `<option ${x === typeDefault ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
       <div class="field"><label for="nf-year">Reporting year</label><select id="nf-year" name="year">${reportingYears().map((y) => `<option ${y === year ? "selected" : ""}>${y}</option>`).join("")}</select></div></div>
     <div class="row2"><div class="field"><label for="nf-ap">Authority profile</label><select id="nf-ap" name="ap"><option value="">Not set</option>${VA.AUTHORITY_PROFILES.map((x) => `<option>${esc(x)}</option>`).join("")}</select></div>
       <div class="field"><label for="nf-assessor">Assessor</label><input id="nf-assessor" name="assessor" type="text" value="${esc(A.me.name)}"></div></div>
@@ -3742,7 +3860,7 @@ async function renderBenchmark() {
         } catch (err) { fail(err, $("#bm-msg")); }
       }, "Comparing…"));
     } else if (src === "fhrg") {
-      opts.innerHTML = sets.length ? `<div class="field" style="max-width:40rem"><label for="bm-set">Benchmark</label><select id="bm-set"><option value="">Choose a benchmark</option>${sets.map((s) => `<option value="${s.id}">${esc(s.name)} (${esc([s.profile_type, s.reporting_year, s.members ? plural(s.members, "authority", "authorities") : ""].filter(Boolean).join(", "))})</option>`).join("")}</select></div>` : `<p class="muted">The FHRG team hasn't published any benchmarks yet. Try a live comparison with other authorities.</p>`;
+      opts.innerHTML = sets.length ? `<div class="field" style="max-width:40rem"><label for="bm-set">Benchmark</label><select id="bm-set"><option value="">Choose a benchmark</option>${sets.map((s) => `<option value="${s.id}">${esc(s.name)} (${esc([s.profile_type, String(s.profile_type || "").toLowerCase().includes(svcName(s).toLowerCase()) ? "" : svcName(s), s.reporting_year, s.members ? plural(s.members, "authority", "authorities") : ""].filter(Boolean).join(", "))})</option>`).join("")}</select></div>` : `<p class="muted">The FHRG team hasn't published any benchmarks yet. Try a live comparison with other authorities.</p>`;
       $("#bm-set")?.addEventListener("change", async (e) => {
         if (!e.target.value) return;
         try {
@@ -3992,20 +4110,115 @@ async function drawCompare(ids, list) {
 async function pageTemplates() {
   setTitle("Templates");
   const tpls = await templates(true);
-  const fh = tpls.filter((t) => t.fhrg), own = tpls.filter((t) => !t.fhrg);
+  const fh = tpls.filter((t) => t.fhrg), own = tpls.filter((t) => !t.fhrg && t.visible !== false), hidden = tpls.filter((t) => !t.fhrg && t.visible === false);
   const can = (t) => A.me.siteAdmin || (!t.fhrg && (t.created_by === A.me.email || A.me.role === "lead"));
   const card = (t) => `<article class="tcard"><div class="row" style="justify-content:space-between"><span class="chip">${esc(t.profile_type || "Any type")}</span>${t.is_default ? `<span class="chip navy">FHRG standard</span>` : ""}</div>
     <h3>${esc(t.name)}</h3>${t.description ? `<p>${esc(t.description)}</p>` : ""}
-    <p class="small">${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")} · ${VA.levelsOf(t.levels).map(([, l]) => l).join(", ")} level${t.used ? ` · used by ${plural(t.used, "of your assessments", "of your assessments")}` : ""}<br>Updated ${esc(ago(t.updated))}${t.updated_by ? ` by ${esc(t.updated_by)}` : ""}</p>
-    <div class="row"><a class="btn small" href="${href(`/new?template=${t.id}`)}" data-nav>Use</a><a class="btn small secondary" href="${href(`/templates/${t.id}`)}" data-nav>${can(t) ? "Edit" : "Look inside"}</a><a class="btn small quiet" href="${href(`/templates/new?from=${t.id}`)}" data-nav>Copy</a><button class="btn small quiet" type="button" data-dl="${t.id}">${ICON.down}<span class="visually-hidden">Download ${esc(t.name)}</span></button></div></article>`;
+    <p class="small"><strong>${esc(svcName(t))}</strong> · ${esc(levelsText(t.levels))} level · ${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")}${t.used ? ` · used by ${plural(t.used, "of your assessments", "of your assessments")}` : ""}<br>Updated ${esc(ago(t.updated))}${t.updated_by ? ` by ${esc(t.updated_by)}` : ""}</p>
+    <div class="row"><a class="btn small" href="${href(`/new?template=${t.id}`)}" data-nav>Use</a><a class="btn small secondary" href="${href(`/templates/${t.id}`)}" data-nav>${can(t) ? "Edit" : "Look inside"}</a><button class="btn small quiet" type="button" data-copy="${t.id}" title="Copy to another service or level, or for your authority">Copy</button><button class="btn small quiet" type="button" data-dl="${t.id}">${ICON.down}<span class="visually-hidden">Download ${esc(t.name)}</span></button></div></article>`;
   main().innerHTML = page("Scorecard templates", `
     <h2 class="h3">FHRG templates</h2><p class="muted small">Kept by the FHRG team for every member authority. Copy one to adapt it for your authority.</p>
     <div class="cards">${fh.map(card).join("") || `<div class="empty">No FHRG templates yet.</div>`}</div>
     <h2 class="h3" style="margin-top:2rem">${esc(A.me.authority)}'s templates</h2><p class="muted small">Your authority's own scorecards: only your colleagues can see and use them.</p>
-    <div class="cards">${own.map(card).join("")}<article class="tcard" style="border-style:dashed"><h3>A new template</h3><p>Set the dimensions, factors, answer scales and weightings for a scorecard of your own.</p><div class="row"><a class="btn small" href="${href("/templates/new")}" data-nav>${ICON.plus} New template</a><a class="btn small quiet" href="${href("/open")}" data-nav>Open a .vt2 file</a></div></article></div>`,
+    <div class="cards">${own.map(card).join("")}<article class="tcard" style="border-style:dashed"><h3>A new template</h3><p>Set the dimensions, factors, answer scales and weightings for a scorecard of your own.</p><div class="row"><a class="btn small" href="${href("/templates/new")}" data-nav>${ICON.plus} New template</a><a class="btn small quiet" href="${href("/open")}" data-nav>Open a .vt2 file</a></div></article></div>
+    ${hidden.length ? `<details class="hidden-tpls"><summary>Hidden templates (${hidden.length})</summary><p class="small muted">Not offered for new assessments, usually because they've moved to another service or level. Assessments already made from them keep them.</p>
+      <ul>${hidden.map((t) => `<li><a href="${href(`/templates/${t.id}`)}" data-nav>${esc(t.name)}</a> <span class="small muted">· ${esc(svcName(t))} · ${esc(levelsText(t.levels))} level</span>${can(t) ? ` <button class="link-btn" type="button" data-show-t="${t.id}">Show again</button>` : ""}</li>`).join("")}</ul></details>` : ""}`,
   "A template is a scorecard with no answers: its dimensions, factors, answer scales and weightings. It's saved in the Excel tool's .vt2 format.",
   `<a class="btn secondary" href="${href("/open")}" data-nav>${ICON.file} Open a .vt2 file</a><a class="btn" href="${href("/templates/new")}" data-nav>${ICON.plus} New template</a>`);
   $$("[data-dl]").forEach((b) => b.addEventListener("click", () => downloadStored("template", b.dataset.dl)));
+  $$("[data-copy]").forEach((b) => b.addEventListener("click", () => copyTemplate(tpls.find((x) => x.id === Number(b.dataset.copy)))));
+  $$("[data-show-t]").forEach((b) => b.addEventListener("click", async () => {
+    try { await api("/api/templates/hide", { id: Number(b.dataset.showT), hidden: false }); A.templates = null; toast("It's offered for new assessments again."); pageTemplates(); } catch (e) { fail(e); }
+  }));
+}
+
+// ------------------------------------------------------------- copying a template to another service or level
+// The copy swaps the service's name in its names, guidance and type, then opens in the template editor to be
+// tailored. Moving is a copy with the original hidden once the copy is saved, so assessments made from it keep it.
+async function copyTemplate(t) {
+  if (!t) return;
+  if (!(await leaveOk("/templates"))) return;
+  const svcs = await services();
+  const from = svcName(t), levels0 = VA.levelsOf(t.levels).map(([k]) => k);
+  const canEdit = A.me.siteAdmin || (!t.fhrg && (t.created_by === A.me.email || A.me.role === "lead"));
+  const defScope = t.fhrg && A.me.siteAdmin ? "fhrg" : "authority";
+  // a move keeps the template where it was: an FHRG template's copy is the FHRG's, an authority's stays with that authority
+  const ownAuthority = t.scope_id === undefined || t.scope_id === null || t.scope_id === A.me.authorityId;
+  const sameScope = (scope) => (t.fhrg ? scope === "fhrg" : scope === "authority" && ownAuthority);
+  const canHide = canEdit && !(t.fhrg && t.is_default) && (t.fhrg ? A.me.siteAdmin : ownAuthority);
+  const list = svcs.some((s) => s.name.toLowerCase() === from.toLowerCase()) ? svcs : [{ name: from, fhrg: true }, ...svcs];
+  const suggest = (to, levels, scope) => {
+    const swapped = VA.swapWords(t.name, from, to);
+    if (swapped !== t.name) return swapped.slice(0, 115);
+    if (to.toLowerCase() !== from.toLowerCase()) return `${t.name} (${to})`.slice(0, 115);
+    if (levels.join() !== levels0.join()) return `${t.name} (${levelsText(levels.join(","))} level)`.slice(0, 115);
+    return (t.fhrg && scope !== "fhrg" ? `${t.name} (${A.me.authority})` : `${t.name} (copy)`).slice(0, 115);
+  };
+  let touched = false;
+  const v = await dialog({ title: `Copy "${t.name}"`, ok: "Copy and open", wide: true, body: `
+    <p class="small muted" style="margin-top:0">To another service or level, or for your authority. A new service's name replaces "${esc(from)}" in the copy's names, guidance and type. The copy then opens in the template editor, so you can tailor it before saving.</p>
+    <div class="row2"><div class="field"><label for="cp-svc">Service</label><select id="cp-svc" name="service">${list.map((s) => `<option value="${esc(s.name)}" ${s.name.toLowerCase() === from.toLowerCase() ? "selected" : ""}>${esc(s.name)}${s.fhrg ? "" : " (your authority's)"}</option>`).join("")}<option value="">Add a service…</option></select></div>
+      <div class="field" id="cp-new-wrap" hidden><label for="cp-new">New service</label><input id="cp-new" name="newService" type="text" maxlength="60" placeholder="For example Parks and open spaces"></div></div>
+    <fieldset class="field" style="border:0;padding:0;margin:0"><legend>Where it can be used</legend><div class="row">${VA.LEVELS.map(([k, l]) => `<label class="check"><input type="checkbox" name="lv_${k}" ${levels0.includes(k) ? "checked" : ""}> ${l}</label>`).join("")}</div></fieldset>
+    ${A.me.siteAdmin ? `<div class="field"><label for="cp-scope">Who can use the copy</label><select id="cp-scope" name="scope"><option value="authority" ${defScope === "authority" ? "selected" : ""}>${esc(A.me.authority)} only</option><option value="fhrg" ${defScope === "fhrg" ? "selected" : ""}>Every member authority (an FHRG template)</option></select></div>` : ""}
+    <div class="field"><label for="cp-name">Name of the copy</label><input id="cp-name" name="name" type="text" maxlength="115" value="${esc(suggest(from, levels0, defScope))}" required></div>
+    ${canHide ? `<label class="check"><input type="checkbox" name="hide" id="cp-hide"> <span>Move it: hide the original once the copy is saved</span></label><p class="hint" style="margin-top:0">Assessments already made from the original keep it, and it can be shown again from the Templates page.</p>`
+      : t.fhrg && t.is_default && A.me.siteAdmin ? `<p class="hint">The original is the default for its type, so it stays. To move it, make another template the default first.</p>` : ""}`,
+    onOpen: (d) => {
+      const f = $("form", d), sel = $("#cp-svc", d), wrap = $("#cp-new-wrap", d), nm = $("#cp-name", d), sc = $("#cp-scope", d);
+      const current = () => ({ to: sel.value || $("#cp-new", d).value.trim() || from, levels: VA.LEVELS.map(([k]) => k).filter((k) => $(`input[name="lv_${k}"]`, f).checked), scope: sc ? sc.value : "authority" });
+      const hide = $("#cp-hide", d);
+      const update = () => {
+        wrap.hidden = !!sel.value;
+        const c = current();
+        if (!touched) nm.value = suggest(c.to, c.levels, c.scope);
+        if (hide) { hide.disabled = !sameScope(c.scope); if (hide.disabled) hide.checked = false; }
+      };
+      update();
+      nm.addEventListener("input", () => (touched = true));
+      f.addEventListener("change", (e) => { if (e.target !== nm) update(); });
+      $("#cp-new", d).addEventListener("input", update);
+    },
+    validate: (x) => {
+      const name = String(x.name || "").trim();
+      if (name.length < 3) return "Give the copy a name of at least 3 characters.";
+      if (/[\\/:*?"<>|]/.test(name)) return 'A name can\'t contain any of \\ / : * ? " < > |';
+      if (!x.service) {
+        const s = String(x.newService || "").trim();
+        if (s.length < 2) return "Name the new service.";
+        if (!fitsFile(s)) return "A service's name can only use letters, numbers and punctuation that the Excel tool's files can hold.";
+        if (/[\\/:*?"<>|]/.test(s)) return 'A service\'s name can\'t contain any of \\ / : * ? " < > |';
+      }
+      if (!VA.LEVELS.some(([k]) => x[`lv_${k}`])) return "Tick at least one level where it can be used.";
+      return "";
+    } });
+  if (!v) return;
+  try {
+    const scope = v.scope === "fhrg" && A.me.siteAdmin ? "fhrg" : "authority";
+    let to = v.service;
+    if (!to) { to = (await api("/api/services/add", { name: String(v.newService).trim(), scope })).service.name; A.services = null; }
+    const r = await api("/api/templates/get", { id: t.id });
+    const doc = VA.parse(r.vt2, "t.vt2").doc;
+    doc.kind = "template";
+    const saved = svcName({ service: doc.service || r.template.service });
+    const changes = saved.toLowerCase() !== to.toLowerCase() ? VA.swapService(doc, saved, to) : [];
+    doc.service = to;
+    doc.levels = VA.LEVELS.map(([k]) => k).filter((k) => v[`lv_${k}`]).join(",");
+    const before = r.template.description || doc.description || "", description = VA.swapWords(before, saved, to);
+    if (description !== before) changes.push({ where: "Description", before, after: description });
+    const profileType = VA.swapWords(r.template.profile_type || doc.profile.Profile_Type || "", saved, to);
+    A.te = newTe({ id: 0, doc, name: String(v.name).trim(), profileType, description, scope, dirty: true,
+      meta: { copyOf: { id: t.id, name: r.template.name, from: saved, to, levels: doc.levels, changes, hide: !!v.hide && canHide && sameScope(scope) } } });
+    go("/templates/local");
+  } catch (e) { fail(e); }
+}
+// what a tailored copy needs checking: shown at the top of the editor until it's saved
+function copyNotice(te) {
+  const c = te.meta.copyOf, n = c.changes.length, moved = c.from.toLowerCase() !== c.to.toLowerCase();
+  const cut = (s) => { s = String(s ?? ""); return s.length > 140 ? `${s.slice(0, 137)}…` : s; };
+  return `<div class="notice info" id="te-copy-note"><p><strong>A copy of "${esc(c.name)}"</strong>${moved ? ` for ${esc(c.to)}` : ""}, at ${esc(levelsText(c.levels))} level. Tailor its factors, weightings and guidance, then save it.${c.hide ? " The original will be hidden once it's saved." : ""}</p>
+    ${n ? `<details><summary>${plural(n, "change")} from "${esc(c.from)}" to "${esc(c.to)}": check they read well</summary><ul class="copy-changes">${c.changes.map((x) => `<li><strong>${esc(x.where)}</strong>: <del>${esc(cut(x.before))}</del> → ${esc(cut(x.after))}</li>`).join("")}</ul></details>`
+      : moved ? `<p class="small">"${esc(c.from)}" doesn't appear in its names, guidance or type, so nothing was swapped.</p>` : ""}</div>`;
 }
 
 // ------------------------------------------------------------- the template editor
@@ -4042,7 +4255,13 @@ async function pageTemplateEditor(idStr, q) {
       A.te = newTe({ id, doc, name: r.template.name, profileType: r.template.profile_type || doc.profile.Profile_Type || "", description: r.template.description || "", scope: r.template.fhrg ? "fhrg" : "authority", version: r.template.version, meta: r.template });
     }
   }
+  await services();
   renderTe();
+}
+function teServiceOptions(te) {
+  const now = svcName(te.doc), list = A.services || [];
+  const all = list.some((s) => s.name.toLowerCase() === now.toLowerCase()) ? list : [{ name: now, fhrg: true }, ...list];
+  return all.map((s) => `<option value="${esc(s.name)}" ${s.name.toLowerCase() === now.toLowerCase() ? "selected" : ""}>${esc(s.name)}${s.fhrg ? "" : " (your authority's)"}</option>`).join("");
 }
 function teCanEdit() {
   const te = A.te;
@@ -4082,21 +4301,26 @@ function renderTe() {
   const own = Object.entries(doc.scales || {});
   main().innerHTML = `<div class="wrap ws">
     <p class="crumbs small"><a href="${href("/templates")}" data-nav>Templates</a> › ${esc(title)}</p>
-    <div class="ws-head"><div><h1 id="te-title">${esc(title)}</h1><p class="meta"><span>${te.scope === "fhrg" ? "FHRG template, for every member" : `${esc(A.me.authority)}'s template`}</span>${te.meta.version ? `<span>Version ${te.meta.version}</span>` : ""}${te.meta.updated ? `<span>Updated ${esc(ago(te.meta.updated))}</span>` : ""}</p></div>
+    <div class="ws-head"><div><h1 id="te-title">${esc(title)}</h1><p class="meta"><span>${te.scope === "fhrg" ? "FHRG template, for every member" : `${esc(A.me.authority)}'s template`}</span><span>${esc(svcName(te.doc))}</span>${te.meta.visible === false ? `<span class="chip warn">Hidden</span>` : ""}${te.meta.version ? `<span>Version ${te.meta.version}</span>` : ""}${te.meta.updated ? `<span>Updated ${esc(ago(te.meta.updated))}</span>` : ""}</p></div>
       <div class="ws-actions"><span class="status-pill ${te.dirty ? "dirty" : "saved"}" id="te-status">${te.dirty ? (te.id ? "Unsaved changes" : "Not saved yet") : "Saved"}</span>
-        ${edit ? `<button class="btn" type="button" id="te-save">Save</button>` : `<a class="btn" href="${href(`/templates/new?from=${te.id}`)}" data-nav>Copy for ${esc(A.me.authority)}</a>`}
+        ${edit ? `<button class="btn" type="button" id="te-save">Save</button>` : `<button class="btn" type="button" data-ta="copyto">Copy</button>`}
         <details class="menu"><summary class="btn secondary">More</summary><div class="panel">
           ${te.id ? `<button type="button" data-ta="use">Start an assessment from it</button>` : ""}
+          ${te.id ? `<button type="button" data-ta="copyto">Copy to another service or level</button>` : ""}
           <button type="button" data-ta="copy">Save as a new template</button>
+          ${te.id && edit ? `<button type="button" data-ta="hide">${te.meta.visible === false ? "Offer it for new assessments again" : "Hide it from new assessments"}</button>` : ""}
           <button type="button" data-ta="vt2">Download for the Excel tool (.vt2)</button>
           ${te.id && edit ? `<button type="button" data-ta="delete">Delete this template</button>` : ""}
         </div></details></div></div>
     ${edit ? "" : `<div class="notice info"><p>${te.scope === "fhrg" ? "This is an FHRG template, kept by the FHRG team." : "Only the colleague who made this template, or your authority's lead, can change it."} You can look inside, or copy it to make your own version.</p></div>`}
+    ${te.meta && te.meta.copyOf ? copyNotice(te) : ""}
     <div class="te"><div>
       <div class="card"><h2>About the template</h2><form class="form wide" id="te-form" novalidate style="grid-template-columns:repeat(2,minmax(0,1fr));max-width:none">
         <div class="field" style="grid-column:1/-1"><label for="te-name">Name</label><input id="te-name" type="text" value="${esc(te.name)}" ${dis} required></div>
         <div class="field"><label for="te-type">Assessment type</label><select id="te-type" ${dis}>${[...new Set([...VA.PROFILE_TYPES, te.profileType].filter(Boolean))].map((x) => `<option ${x === te.profileType ? "selected" : ""}>${esc(x)}</option>`).join("")}</select></div>
         <div class="field"><label for="te-wm">Weighting method</label><select id="te-wm" ${dis}><option value="simple" ${tree ? "" : "selected"}>Simple: within each dimension</option><option value="tree" ${tree ? "selected" : ""}>Tree: cascading down the hierarchy</option></select></div>
+        <div class="field"><label for="te-svc">Service</label><select id="te-svc" ${dis}>${teServiceOptions(te)}${edit ? `<option value="">Add a service…</option>` : ""}</select></div>
+        <div class="field"><p class="hint" style="margin-top:1.9rem">To make a version for another service or level, use <strong>Copy</strong>: it also swaps the service's name.</p></div>
         ${A.me.siteAdmin && !te.id ? `<div class="field" style="grid-column:1/-1"><label for="te-scope">Who can use it</label><select id="te-scope"><option value="authority" ${te.scope !== "fhrg" ? "selected" : ""}>${esc(A.me.authority)} only</option><option value="fhrg" ${te.scope === "fhrg" ? "selected" : ""}>Every member authority (an FHRG template)</option></select></div>` : ""}
         <div class="field" style="grid-column:1/-1"><label for="te-desc">Description</label><textarea id="te-desc" style="min-height:4.5rem" ${dis}>${esc(te.description)}</textarea></div>
         <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend>Where it can be used</legend><p class="hint">The levels of an organisation's structure this scorecard can be attached to.</p>
@@ -4133,6 +4357,16 @@ function renderTe() {
   $("#te-type").addEventListener("change", (e) => { te.profileType = e.target.value; teDirty(); });
   $("#te-desc").addEventListener("input", (e) => { te.description = e.target.value; teDirty(); });
   $("#te-lock")?.addEventListener("change", (e) => { te.doc.weightsLocked = e.target.checked; teDirty(); });
+  $("#te-svc").addEventListener("change", async (e) => {
+    if (e.target.value) { te.doc.service = e.target.value; teDirty(); renderTeKeep(); return; }
+    const name = await askText("Add a service", "Service", "", "Add", te.scope === "fhrg" ? "It's added to the FHRG's list, for every member authority." : `It's added to ${esc(A.me.authority)}'s list.`);
+    if (!name) { e.target.value = svcName(te.doc); return; }
+    try {
+      const r = await api("/api/services/add", { name, scope: te.scope === "fhrg" ? "fhrg" : "authority" });
+      await services(true);
+      te.doc.service = r.service.name; teDirty(); renderTeKeep();
+    } catch (err) { e.target.value = svcName(te.doc); fail(err); }
+  });
   $$("[data-level]").forEach((c) => c.addEventListener("change", () => { const on = $$("[data-level]").filter((x) => x.checked).map((x) => x.dataset.level); te.doc.levels = on.join(",") || "service"; teDirty(); }));
   $("#te-scope")?.addEventListener("change", (e) => { te.scope = e.target.value; teDirty(); });
   $("#te-wm").addEventListener("change", (e) => {
@@ -4230,6 +4464,13 @@ function bindTeMenu() {
     const te = A.te;
     if (b.dataset.ta === "use") return go(`/new?template=${te.id}`);
     if (b.dataset.ta === "copy") return saveTe(true);
+    if (b.dataset.ta === "copyto") return copyTemplate({ ...te.meta, id: te.id, name: te.name, service: svcName(te.doc), levels: te.doc.levels || te.meta.levels, fhrg: te.scope === "fhrg", profile_type: te.profileType, description: te.description });
+    if (b.dataset.ta === "hide") {
+      const hide = te.meta.visible !== false;
+      if (hide && !(await confirmBox("Hide this template?", `"${esc(te.name)}" won't be offered for new assessments. Assessments already made from it keep it, and it can be offered again from here or the Templates page.`, "Hide it"))) return;
+      try { await api("/api/templates/hide", { id: te.id, hidden: hide }); te.meta = { ...te.meta, visible: !hide }; A.templates = null; toast(hide ? "Hidden from new assessments." : "It's offered for new assessments again."); renderTeKeep(); } catch (e) { fail(e); }
+      return;
+    }
     if (b.dataset.ta === "vt2") return saveFile(`${safeName(te.name || "template")}.vt2`, VA.encodeCp1252(teText()));
     if (b.dataset.ta === "delete") {
       if (!(await confirmBox("Delete this template?", `"${esc(te.name)}" will be deleted. Assessments already made from it are kept.`, "Delete", true))) return;
@@ -4280,11 +4521,20 @@ async function saveTe(asCopy = false) {
       const scope = asCopy && te.scope === "fhrg" && !A.me.siteAdmin ? "authority" : te.scope;
       te.doc.description = te.description || "";
       te.doc.levels = te.doc.levels || "service";
-      const r = await api("/api/templates/save", { id: asCopy ? 0 : te.id, name, vt2: teText(), profileType: te.profileType, description: te.description, levels: te.doc.levels, scope, baseVersion: te.version });
+      te.doc.service = svcName(te.doc);
+      const r = await api("/api/templates/save", { id: asCopy ? 0 : te.id, name, vt2: teText(), profileType: te.profileType, description: te.description, levels: te.doc.levels, service: te.doc.service, scope, baseVersion: te.version });
+      const copyOf = te.meta.copyOf;
       Object.assign(te, { id: r.id, name, version: r.version, dirty: false, scope: r.scope_id === 0 ? "fhrg" : "authority" });
-      te.meta = { ...te.meta, version: r.version, updated: r.updated, updated_by: r.updated_by, created_by: te.meta.created_by || A.me.email };
+      te.meta = { ...te.meta, version: r.version, updated: r.updated, updated_by: r.updated_by, created_by: te.meta.created_by || A.me.email, visible: true, copyOf: undefined };
       A.templates = null;
-      toast(asCopy ? `Saved as "${name}".` : "Template saved.");
+      // a move: the original is hidden once its copy is saved
+      let hid = false;
+      if (copyOf && copyOf.hide) {
+        try { await api("/api/templates/hide", { id: copyOf.id, hidden: true }); hid = true; }
+        catch (e) { toast(`Saved, but "${copyOf.name}" couldn't be hidden: ${e.message}`, 7000); }
+      }
+      if (hid) toast(`Saved. "${copyOf.name}" is now hidden from new assessments.`, 5000);
+      else if (!(copyOf && copyOf.hide)) toast(asCopy ? `Saved as "${name}".` : "Template saved.");
       currentPath = `/templates/${r.id}`;
       history.replaceState({}, "", href(currentPath));
       renderTeKeep();
@@ -4362,13 +4612,15 @@ async function adminTemplates(body) {
   body.innerHTML = `${r.added ? `<div class="notice ok"><p>${plural(r.added, "template file")} found in templates/fhrg/ ${r.added === 1 ? "was" : "were"} added.</p></div>` : ""}
     <div class="row" style="margin-bottom:1rem"><a class="btn small" href="${href("/templates/new?scope=fhrg")}" data-nav>${ICON.plus} New FHRG template</a><label class="btn small secondary" for="up-tpl">${ICON.file} Upload a .vt2 or .va2 as an FHRG template</label><input id="up-tpl" type="file" accept=".vt2,.va2" hidden></div>
     <div class="table-wrap"><table class="mini"><thead><tr><th>Template</th><th>Kept by</th><th>Type</th><th class="num">Rows</th><th class="num">Used</th><th>Status</th><th></th></tr></thead><tbody>
-    ${rows.map((t) => `<tr><td><a href="${href(`/templates/${t.id}`)}" data-nav><strong>${esc(t.name)}</strong></a><span class="sub small muted" style="display:block">v${t.version} · ${esc(ago(t.updated))}</span></td><td>${t.fhrg ? "FHRG" : esc(t.authority_name || "")}</td><td>${esc(t.profile_type || "")}</td><td class="num">${t.factors ?? ""}</td><td class="num">${t.used ?? 0}</td>
+    ${rows.map((t) => `<tr><td><a href="${href(`/templates/${t.id}`)}" data-nav><strong>${esc(t.name)}</strong></a><span class="sub small muted" style="display:block">v${t.version} · ${esc(ago(t.updated))}</span></td><td>${t.fhrg ? "FHRG" : esc(t.authority_name || "")}</td><td>${esc(t.profile_type || "")}<span class="sub small muted" style="display:block">${esc(svcName(t))} · ${esc(levelsText(t.levels))} level</span></td><td class="num">${t.factors ?? ""}</td><td class="num">${t.used ?? 0}</td>
       <td>${t.is_default ? `<span class="chip navy">Default</span>` : ""} ${t.visible ? "" : `<span class="chip warn">Hidden</span>`}</td>
       <td><div class="row">${t.fhrg && !t.is_default ? `<button class="btn small secondary" type="button" data-t="${t.id}" data-x="default">Make default</button>` : ""}
         ${t.fhrg && !t.is_default ? `<button class="btn small quiet" type="button" data-t="${t.id}" data-x="${t.visible ? "hide" : "show"}">${t.visible ? "Hide" : "Show"}</button>` : ""}
         ${!t.fhrg ? `<button class="btn small secondary" type="button" data-t="${t.id}" data-x="promote">Copy to FHRG</button>` : ""}
         ${!t.is_default ? `<button class="btn small danger" type="button" data-t="${t.id}" data-x="delete">Delete</button>` : ""}</div></td></tr>`).join("")}
-    </tbody></table></div><p class="small muted">The default template for each type is offered first when members start an assessment. Hidden FHRG templates stay available to assessments already made from them.</p>`;
+    </tbody></table></div><p class="small muted">The default template for each type is offered first when members start an assessment. Hidden FHRG templates stay available to assessments already made from them.</p>
+    <div id="admin-svcs"></div>`;
+  adminServices($("#admin-svcs"));
   $$("[data-x]").forEach((b) => b.addEventListener("click", async () => {
     const t = rows.find((x) => x.id === Number(b.dataset.t)), act = b.dataset.x;
     let extra = {};
@@ -4385,17 +4637,40 @@ async function adminTemplates(body) {
     } catch (err) { fail(err); }
   });
 }
+// the services templates and assessments can be for: the FHRG's list, which the team keeps, and authorities' own
+async function adminServices(el) {
+  if (!el) return;
+  let list = [];
+  try { list = (await api("/api/services/list", { all: true })).services; } catch (e) { el.innerHTML = ""; return; }
+  el.innerHTML = `<div class="card" style="margin-top:1.5rem"><h2>Services</h2><p class="small muted">What templates and assessments are for. The FHRG's services are offered to every member authority, and an authority can add its own when it copies a template. Benchmarks only compare assessments of the same service. ${esc(VA.DEFAULT_SERVICE)} is the service of anything that doesn't say.</p>
+    <div class="table-wrap"><table class="mini"><thead><tr><th>Service</th><th>Kept by</th><th class="num">Templates</th><th></th></tr></thead><tbody>
+    ${list.map((s) => `<tr><td>${esc(s.name)}</td><td>${s.fhrg ? "FHRG" : esc(s.authority_name || "An authority")}</td><td class="num">${s.templates ?? ""}</td><td>${s.name.toLowerCase() === VA.DEFAULT_SERVICE.toLowerCase() ? "" : `<button class="btn small quiet" type="button" data-svc-del="${s.id}">Remove</button>`}</td></tr>`).join("")}</tbody></table></div>
+    <form class="row" id="svc-add" novalidate style="margin-top:0.75rem"><input type="text" name="service" aria-label="A new FHRG service" placeholder="A new FHRG service" maxlength="60" style="max-width:20rem"><button class="btn small" type="submit">Add</button></form><div id="svc-msg"></div></div>`;
+  $("#svc-add", el).addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const name = e.target.elements.namedItem("service").value.trim();
+    if (!name) return;
+    try { const r = await api("/api/services/add", { name, scope: "fhrg" }); A.services = null; toast(r.added ? `${r.service.name} added.` : `${r.service.name} is already on the list.`); adminServices(el); } catch (err) { fail(err, $("#svc-msg", el)); }
+  });
+  $$("[data-svc-del]", el).forEach((b) => b.addEventListener("click", async () => {
+    const s = list.find((x) => x.id === Number(b.dataset.svcDel));
+    if (!(await confirmBox("Remove this service?", `"${esc(s.name)}" will no longer be offered. A service that's in use can't be removed.`, "Remove", true))) return;
+    try { await api("/api/admin/service-delete", { id: s.id }); A.services = null; toast("Removed."); adminServices(el); } catch (err) { fail(err, $("#svc-msg", el)); }
+  }));
+}
 async function adminBenchmarks(body) {
   const r = await api("/api/admin/benchmarks");
   const opts = r.options;
   const types = [...new Set([...VA.PROFILE_TYPES, ...opts.map((o) => o.profile_type).filter(Boolean)])];
+  const svcs = [...new Map([...(await services()), ...opts.map((o) => ({ name: svcName(o) }))].map((s) => [s.name.toLowerCase(), s])).values()];
   body.innerHTML = `
     <div class="card"><h2>Build a benchmark from shared assessments</h2>
       <p class="small muted">Uses each authority's most recent shared assessment that matches. Members only ever see the averages.</p>
-      ${opts.length ? `<div class="table-wrap" style="margin-bottom:1rem"><table class="mini"><thead><tr><th>Type</th><th>Year</th><th>Authority profile</th><th>Template</th><th class="num">Authorities</th><th></th></tr></thead><tbody>
-        ${opts.map((o, k) => `<tr><td>${esc(o.profile_type || "")}</td><td>${esc(o.reporting_year || "")}</td><td>${esc(o.authority_profile || "")}</td><td>${esc(o.template_name || "")}</td><td class="num">${o.authorities}</td><td><button class="btn small quiet" type="button" data-opt="${k}">Use these</button></td></tr>`).join("")}</tbody></table></div>` : ""}
+      ${opts.length ? `<div class="table-wrap" style="margin-bottom:1rem"><table class="mini"><thead><tr><th>Type</th><th>Service</th><th>Year</th><th>Authority profile</th><th>Template</th><th class="num">Authorities</th><th></th></tr></thead><tbody>
+        ${opts.map((o, k) => `<tr><td>${esc(o.profile_type || "")}</td><td>${esc(svcName(o))}</td><td>${esc(o.reporting_year || "")}</td><td>${esc(o.authority_profile || "")}</td><td>${esc(o.template_name || "")}</td><td class="num">${o.authorities}</td><td><button class="btn small quiet" type="button" data-opt="${k}">Use these</button></td></tr>`).join("")}</tbody></table></div>` : ""}
       <form class="form wide" id="bb" novalidate style="grid-template-columns:repeat(3,minmax(0,1fr));max-width:none">
         <div class="field"><label for="bb-type">Type</label><select id="bb-type" name="profile_type">${types.map((t) => `<option>${esc(t)}</option>`).join("")}</select></div>
+        <div class="field"><label for="bb-svc">Service</label><select id="bb-svc" name="service">${svcs.map((s) => `<option>${esc(s.name)}</option>`).join("")}</select></div>
         <div class="field"><label for="bb-year">Reporting year</label><select id="bb-year" name="reporting_year"><option value="">Any</option>${reportingYears().map((y) => `<option>${y}</option>`).join("")}</select></div>
         <div class="field"><label for="bb-ap">Authority profile</label><select id="bb-ap" name="authority_profile"><option value="">All</option>${VA.AUTHORITY_PROFILES.map((x) => `<option>${esc(x)}</option>`).join("")}</select></div>
         <div class="field"><label for="bb-stat">Average</label><select id="bb-stat" name="statistic"><option value="mean">Mean</option><option value="median">Median</option></select></div>
@@ -4410,7 +4685,7 @@ async function adminBenchmarks(body) {
         <td><div class="row"><button class="btn small quiet" type="button" data-b="${s.id}" data-y="edit">Edit</button><button class="btn small quiet" type="button" data-b="${s.id}" data-y="vis">${s.visible ? "Hide" : "Show"}</button><button class="btn small danger" type="button" data-b="${s.id}" data-y="del">Delete</button></div></td></tr>`).join("")}</tbody></table></div>` : `<p class="muted">None yet.</p>`}</div>`;
   $$("[data-opt]").forEach((b) => b.addEventListener("click", () => {
     const o = opts[Number(b.dataset.opt)];
-    $("#bb-type").value = o.profile_type || ""; $("#bb-year").value = o.reporting_year || ""; $("#bb-ap").value = o.authority_profile || "";
+    $("#bb-type").value = o.profile_type || ""; $("#bb-svc").value = svcName(o); $("#bb-year").value = o.reporting_year || ""; $("#bb-ap").value = o.authority_profile || "";
     $("#bb-structure").value = o.structure || ""; $("#bb-tname").value = o.template_name || "";
     $("#bb-tpl").textContent = o.template_name ? `Template: ${o.template_name}` : "";
     $("#bb-name").focus();
@@ -4435,7 +4710,7 @@ async function adminBenchmarks(body) {
         <div class="field"><label for="bu-year">Reporting year</label><input id="bu-year" name="reporting_year" type="text" value="${esc(p0.Profile_Reporting_Year || "")}"></div></div>
         <div class="field"><label for="bu-desc">Description</label><input id="bu-desc" name="description" type="text"></div>`, validate: (x) => (!String(x.name).trim() ? "Give the benchmark a name." : "") });
       if (!v) return;
-      await api("/api/admin/benchmark-save", { ...v, summaries: docs.map((d) => VA.summarise(d)), files: files.map((f) => f.name), structure: VA.structureKey(docs[0]), members: files.length });
+      await api("/api/admin/benchmark-save", { ...v, service: svcName(docs[0]), summaries: docs.map((d) => VA.summarise(d)), files: files.map((f) => f.name), structure: VA.structureKey(docs[0]), members: files.length });
       toast("Benchmark uploaded."); adminBenchmarks(body);
     } catch (err) { fail(err, $("#bu-msg")); }
   });

@@ -4,6 +4,7 @@
 //    when at least MIN_PEERS authorities are in it
 import { requireMe, requireSiteAdmin } from "./accounts";
 import { assessmentFor, cleanSummary } from "./assessments";
+import { DEFAULT_SERVICE, cleanService, listedService, serviceKey } from "./services";
 import type { Config } from "./config";
 import type { Row, Val } from "./db";
 import { audit, exec, q } from "./db";
@@ -75,7 +76,7 @@ export function publicBenchmark(r: Row, withSummary = false, admin = false, mini
 
 export async function handleBenchmarkList(c: Config, request: Request): Promise<Response> {
   await requireMe(c, request);
-  const rows = await q(c, "SELECT id, name, description, profile_type, reporting_year, authority_profile, template_name, structure, statistic, members, source, updated FROM va_benchmarks WHERE visible = 1 ORDER BY profile_type, reporting_year DESC, name");
+  const rows = await q(c, "SELECT id, name, description, profile_type, COALESCE(service, ?) AS service, reporting_year, authority_profile, template_name, structure, statistic, members, source, updated FROM va_benchmarks WHERE visible = 1 ORDER BY profile_type, reporting_year DESC, name", DEFAULT_SERVICE);
   return json({ benchmarks: rows });
 }
 
@@ -88,7 +89,8 @@ export async function handleBenchmarkGet(c: Config, request: Request): Promise<R
 }
 
 // the latest shared assessment from each authority that matches
-export async function peerSummaries(c: Config, f: { profileType: string; structure?: string; year?: string; authorityProfile?: string; excludeAuthority?: number; excludeId?: number }): Promise<Row[]> {
+// (always of the same service: an assessment that doesn't say is for Highways)
+export async function peerSummaries(c: Config, f: { profileType: string; service?: string; structure?: string; year?: string; authorityProfile?: string; excludeAuthority?: number; excludeId?: number }): Promise<Row[]> {
   const where = ["a.shared = 1", "a.summary IS NOT NULL", "a.profile_type = ?"];
   const args: Val[] = [f.profileType];
   if (f.structure) { where.push("a.structure = ?"); args.push(f.structure); }
@@ -96,8 +98,10 @@ export async function peerSummaries(c: Config, f: { profileType: string; structu
   if (f.authorityProfile) { where.push("a.authority_profile = ?"); args.push(f.authorityProfile); }
   if (f.excludeAuthority) { where.push("a.authority_id <> ?"); args.push(f.excludeAuthority); }
   if (f.excludeId) { where.push("a.id <> ?"); args.push(f.excludeId); }
-  const rows = await q(c, `SELECT a.id, a.authority_id, a.name, a.updated, a.reporting_year, a.summary, au.name AS authority_name
+  const service = serviceKey(f.service);
+  const all = await q(c, `SELECT a.id, a.authority_id, a.name, a.updated, a.reporting_year, a.summary, a.service, au.name AS authority_name
     FROM va_assessments a JOIN authorities au ON au.id = a.authority_id WHERE ${where.join(" AND ")} ORDER BY a.updated DESC LIMIT 2000`, ...args);
+  const rows = all.filter((r) => serviceKey(r.service) === service);
   const latest = new Map<number, Row>();
   for (const r of rows) if (!latest.has(r.authority_id)) latest.set(r.authority_id, r);
   return [...latest.values()].map((r) => ({ ...r, summary: safeParse(r.summary) })).filter((r) => r.summary && r.summary.totals);
@@ -110,6 +114,7 @@ export async function handlePeers(c: Config, request: Request): Promise<Response
   if (!a.profile_type) throw new FriendlyError("Choose the assessment's type on the Profile tab, and save it, to compare it with other authorities.");
   const filters = {
     profileType: a.profile_type,
+    service: cleanService(a.service),
     structure: b.sameTemplate === false ? "" : a.structure || "",
     year: b.sameYear ? a.reporting_year || "" : "",
     authorityProfile: b.sameProfile ? a.authority_profile || "" : "",
@@ -127,8 +132,8 @@ export async function handlePeers(c: Config, request: Request): Promise<Response
 export async function handleAdminBenchmarks(c: Config, request: Request): Promise<Response> {
   await requireSiteAdmin(c, request);
   const rows = await q(c, "SELECT * FROM va_benchmarks ORDER BY profile_type, reporting_year DESC, name");
-  const options = await q(c, `SELECT profile_type, reporting_year, authority_profile, template_name, structure, COUNT(DISTINCT authority_id) AS authorities
-    FROM va_assessments WHERE shared = 1 AND summary IS NOT NULL GROUP BY profile_type, reporting_year, authority_profile, structure ORDER BY profile_type, reporting_year DESC`);
+  const options = await q(c, `SELECT profile_type, COALESCE(service, ?) AS service, reporting_year, authority_profile, template_name, structure, COUNT(DISTINCT authority_id) AS authorities
+    FROM va_assessments WHERE shared = 1 AND summary IS NOT NULL GROUP BY profile_type, COALESCE(service, ?), reporting_year, authority_profile, structure ORDER BY profile_type, reporting_year DESC`, DEFAULT_SERVICE, DEFAULT_SERVICE);
   return json({ benchmarks: rows.map((r) => publicBenchmark(r, true, true)), options });
 }
 
@@ -142,18 +147,19 @@ export async function handleBenchmarkBuild(c: Config, request: Request): Promise
   const year = cleanText(b.reporting_year, 20);
   const authorityProfile = cleanText(b.authority_profile, 100);
   const structure = cleanText(b.structure, 40);
+  const service = await listedService(c, b.service);
   const statistic = b.statistic === "median" ? "median" : "mean";
-  const peers = await peerSummaries(c, { profileType, year, authorityProfile, structure });
+  const peers = await peerSummaries(c, { profileType, service, year, authorityProfile, structure });
   const min = Math.max(c.minPeers, Number(b.min_members) || 0);
   if (peers.length < min) throw new FriendlyError(`Only ${peers.length} authorit${peers.length === 1 ? "y has" : "ies have"} shared a matching assessment. At least ${min} are needed.`);
   const summary = aggregate(peers.map((p) => p.summary), statistic, c.minPeers);
   const templateName = cleanText(b.template_name, 150) || null;
-  const name = cleanText(b.name, 150) || `${profileType}${year ? ` ${year}` : ""}${authorityProfile ? ` (${authorityProfile})` : ""} benchmark`;
+  const name = cleanText(b.name, 150) || `${profileType}${profileType.toLowerCase().includes(service.toLowerCase()) ? "" : ` (${service})`}${year ? ` ${year}` : ""}${authorityProfile ? ` (${authorityProfile})` : ""} benchmark`;
   const t = now();
   const r = await exec(c, [
-    { sql: `INSERT INTO va_benchmarks (name, description, profile_type, reporting_year, authority_profile, template_name, structure, statistic, members, source, summary, member_list, visible, created, created_by, updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'composite', ?, ?, ?, ?, ?, ?)`,
-      args: [name, cleanText(b.description, 300) || `${statistic === "median" ? "Median" : "Mean"} of ${peers.length} ${peers.length === 1 ? "authority" : "authorities"}`, profileType, year || null, authorityProfile || null,
+    { sql: `INSERT INTO va_benchmarks (name, description, profile_type, service, reporting_year, authority_profile, template_name, structure, statistic, members, source, summary, member_list, visible, created, created_by, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'composite', ?, ?, ?, ?, ?, ?)`,
+      args: [name, cleanText(b.description, 300) || `${statistic === "median" ? "Median" : "Mean"} of ${peers.length} ${peers.length === 1 ? "authority" : "authorities"}`, profileType, service, year || null, authorityProfile || null,
         templateName, structure || null, statistic, peers.length, JSON.stringify(summary), JSON.stringify(peers.map((p) => ({ authority: p.authority_name, name: p.name, year: p.reporting_year, saved: p.updated }))),
         b.visible === false ? 0 : 1, t, me.email, t] },
     audit(me.email, "va-build-benchmark", { name, members: peers.length, statistic }),
@@ -168,12 +174,12 @@ export async function handleBenchmarkSave(c: Config, request: Request): Promise<
   const id = Number(b.id) || 0;
   const name = cleanText(b.name, 150);
   if (!name) throw new FriendlyError("Give the benchmark a name.", 400, "name");
-  const fields = [name, cleanText(b.description, 300) || null, cleanText(b.profile_type, 100) || null, cleanText(b.reporting_year, 20) || null, cleanText(b.authority_profile, 100) || null, b.visible === false || b.visible === 0 ? 0 : 1];
+  const fields = [name, cleanText(b.description, 300) || null, cleanText(b.profile_type, 100) || null, await listedService(c, b.service), cleanText(b.reporting_year, 20) || null, cleanText(b.authority_profile, 100) || null, b.visible === false || b.visible === 0 ? 0 : 1];
   const t = now();
   if (id) {
     const r = (await q(c, "SELECT id FROM va_benchmarks WHERE id = ?", id))[0];
     if (!r) throw new FriendlyError("That benchmark wasn't found.", 404);
-    await exec(c, [{ sql: "UPDATE va_benchmarks SET name = ?, description = ?, profile_type = ?, reporting_year = ?, authority_profile = ?, visible = ?, updated = ? WHERE id = ?", args: [...fields, t, id] }, audit(me.email, "va-save-benchmark", { id, name })]);
+    await exec(c, [{ sql: "UPDATE va_benchmarks SET name = ?, description = ?, profile_type = ?, service = ?, reporting_year = ?, authority_profile = ?, visible = ?, updated = ? WHERE id = ?", args: [...fields, t, id] }, audit(me.email, "va-save-benchmark", { id, name })]);
     return json({ saved: true, id });
   }
   const summaries = (Array.isArray(b.summaries) ? b.summaries : [b.summary]).map(cleanSummary).filter((s: any) => s && Object.keys(s.factors || {}).length);
@@ -181,8 +187,8 @@ export async function handleBenchmarkSave(c: Config, request: Request): Promise<
   const statistic = b.statistic === "median" ? "median" : "mean";
   const summary = aggregate(summaries, statistic, 1); // the FHRG team chooses what it uploads
   const r = await exec(c, [
-    { sql: `INSERT INTO va_benchmarks (name, description, profile_type, reporting_year, authority_profile, visible, template_name, structure, statistic, members, source, summary, member_list, created, created_by, updated)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?, ?, ?, ?)`,
+    { sql: `INSERT INTO va_benchmarks (name, description, profile_type, service, reporting_year, authority_profile, visible, template_name, structure, statistic, members, source, summary, member_list, created, created_by, updated)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'upload', ?, ?, ?, ?, ?)`,
       args: [...fields, cleanText(b.template_name, 150) || null, cleanText(b.structure, 40) || null, statistic, Number(b.members) || summaries.length, JSON.stringify(summary),
         JSON.stringify((Array.isArray(b.files) ? b.files : []).slice(0, 200).map((f: unknown) => ({ file: cleanText(f, 200) }))), t, me.email, t] },
     audit(me.email, "va-add-benchmark", { name }),

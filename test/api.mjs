@@ -179,6 +179,62 @@ await test("a new template file brings its levels and description with it", asyn
   assert.equal(t.description, "Ready for a changing climate");
   assert.equal(t.profile_type, "Climate Readiness");
 });
+// ----- services, and hiding a template that has moved
+const inService = (file, s) => `${file}Begin Template Settings\r\n   Template Service:= ${s}\r\nEnd Section\r\n`;
+let wasteTid = 0;
+await test("services: everyone sees the FHRG's list, and an authority's own stay its own", async () => {
+  const first = (await call("/api/services/list", {}, bob)).services;
+  assert.deepEqual(first.map((s) => s.name), ["Highways"]);
+  assert.equal(first[0].fhrg, true);
+  const a = await call("/api/services/add", { name: "  Parks   and open spaces " }, bob);
+  expectStatus(a, 200); assert.equal(a.service.name, "Parks and open spaces"); assert.equal(a.service.fhrg, false); assert.equal(a.added, true);
+  assert.equal((await call("/api/services/add", { name: "parks AND open spaces" }, ann)).added, false, "the same name is reused");
+  assert.ok((await call("/api/services/list", {}, ann)).services.some((s) => s.name === "Parks and open spaces"));
+  assert.ok(!(await call("/api/services/list", {}, cat)).services.some((s) => s.name === "Parks and open spaces"), "another authority doesn't see it");
+  assert.ok(!(await call("/api/services/list", { all: true }, cat)).services.some((s) => s.name === "Parks and open spaces"), "nor by asking for all");
+  expectStatus(await call("/api/services/add", { name: "Waste", scope: "fhrg" }, ann), 403);
+  expectStatus(await call("/api/services/add", { name: "Waste/../x" }, ann), 400);
+  expectStatus(await call("/api/services/add", { name: "W" }, ann), 400);
+  expectStatus(await call("/api/services/add", { name: "Parks 🌳" }, ann), 400, "only what the Excel tool's files can hold");
+  const w = await call("/api/services/add", { name: "Waste", scope: "fhrg" }, boss);
+  expectStatus(w, 200); assert.equal(w.service.fhrg, true);
+  assert.ok((await call("/api/services/list", {}, cat)).services.some((s) => s.name === "Waste"));
+  assert.ok((await call("/api/services/list", { all: true }, boss)).services.some((s) => s.name === "Parks and open spaces" && s.authority_name === "Northbridge Council"));
+});
+await test("a template's service comes from its file or the save, and the list can ask for one", async () => {
+  const r = await call("/api/templates/save", { name: "Waste value for money", vt2: inService(va2([[1, "Economy", "One"]]), "Waste") }, bob);
+  expectStatus(r, 200); wasteTid = r.id;
+  const list = (await call("/api/templates/list", {}, bob)).templates;
+  assert.equal(list.find((x) => x.id === r.id).service, "Waste");
+  assert.equal(list.find((x) => x.fhrg).service, "Highways", "one that doesn't say is for Highways");
+  const only = async (service) => (await call("/api/templates/list", { service }, bob)).templates.map((x) => x.name);
+  assert.deepEqual(await only("waste"), ["Waste value for money"]);
+  assert.ok(!(await only("Highways")).includes("Waste value for money"));
+  expectStatus(await call("/api/templates/save", { id: r.id, baseVersion: 1, name: "Waste value for money", vt2: va2([[1, "Economy", "One"]]), service: "Parks and open spaces" }, bob), 200);
+  assert.equal((await call("/api/templates/list", {}, bob)).templates.find((x) => x.id === r.id).service, "Parks and open spaces");
+  // another authority's own spelling isn't looked up, so it can't learn that Northbridge has the service
+  const e = await call("/api/templates/save", { name: "East parks", vt2: va2([[1, "Economy", "One"]]), service: "parks AND open spaces" }, cat);
+  assert.equal((await call("/api/templates/list", {}, cat)).templates.find((x) => x.id === e.id).service, "parks AND open spaces");
+  await call("/api/templates/delete", { id: e.id }, cat);
+});
+await test("hiding a template: its creator or lead can, others can't, and the FHRG's default stays", async () => {
+  const other = await login("other@north.test");
+  expectStatus(await call("/api/templates/hide", { id: wasteTid }, other), 403);
+  expectStatus(await call("/api/templates/hide", { id: wasteTid }, cat), 404);
+  const h = await call("/api/templates/hide", { id: wasteTid }, bob);
+  expectStatus(h, 200); assert.equal(h.visible, false);
+  assert.equal((await call("/api/templates/list", {}, bob)).templates.find((x) => x.id === wasteTid).visible, false, "still listed for its authority, marked hidden");
+  expectStatus(await call("/api/templates/hide", { id: wasteTid, hidden: false }, ann), 200);
+  const fhrg = (await call("/api/templates/list", {}, ann)).templates.find((x) => x.fhrg);
+  expectStatus(await call("/api/templates/hide", { id: fhrg.id }, ann), 403);
+  const d = await call("/api/templates/hide", { id: fhrg.id }, boss);
+  expectStatus(d, 400); assert.match(d.error, /default/);
+  const spare = await call("/api/templates/save", { name: "FHRG spare", scope: "fhrg", vt2: va2() }, boss);
+  expectStatus(await call("/api/templates/hide", { id: spare.id }, boss), 200);
+  assert.ok(!(await call("/api/templates/list", {}, cat)).templates.some((x) => x.id === spare.id), "a hidden FHRG template isn't offered to members");
+  expectStatus(await call("/api/templates/get", { id: spare.id }, cat), 404);
+  expectStatus(await call("/api/templates/delete", { id: spare.id }, boss), 200);
+});
 await test("scoring guidance reaches a member with the template, and stays in its section", async () => {
   const id = (await call("/api/templates/list", {}, cat)).templates.find((x) => x.name === "Climate Readiness").id;
   putFile("templates/fhrg/Climate Readiness (Default).vt2", va2([[101, "Governance", "A named owner"]], { type: "Climate Readiness" }) + "Begin Scoring Guidance\r\n  |g|101|e|Description|e|Who answers for it\r\nEnd Section\r\n");
@@ -317,10 +373,49 @@ await test("a benchmark built by the FHRG team shows members averages, and not w
   await call("/api/assessments/delete", { id: lone.id }, cat);
   expectStatus(await call("/api/admin/benchmark-delete", { id: r.id }, boss), 200);
 });
+await test("peers and benchmarks only compare assessments of the same service", async () => {
+  const wt = inService(text, "Waste"), made = [];
+  for (const [n, who] of [["West waste", dee], ["South waste", eve], ["East waste", cat]]) { const r = await call("/api/assessments/save", { name: n, va2: wt, summary: summary(90) }, who); expectStatus(r, 200); made.push([r.id, who]); }
+  const highways = await call("/api/benchmarks/peers", { assessmentId: aid }, bob);
+  assert.equal(highways.ok, true); assert.equal(highways.count, 3);
+  assert.ok(highways.benchmark.totals.score < 90, "Highways is compared with Highways only");
+  const mine = await call("/api/assessments/save", { name: "North waste", va2: wt, summary: summary(80) }, bob);
+  made.push([mine.id, bob]);
+  assert.equal((await call("/api/assessments/open", { id: mine.id }, bob)).assessment.service, "Waste");
+  const waste = await call("/api/benchmarks/peers", { assessmentId: mine.id }, bob);
+  assert.equal(waste.ok, true); assert.equal(waste.count, 3); assert.equal(waste.benchmark.totals.score, 90);
+  const b = await call("/api/admin/benchmark-build", { profile_type: "Value for Money (Highways)", service: "waste" }, boss);
+  expectStatus(b, 200); assert.equal(b.members, 4);
+  const got = (await call("/api/benchmarks/get", { id: b.id }, bob)).benchmark;
+  assert.equal(got.service, "Waste"); assert.equal(got.summary.totals.score, 87.5);
+  assert.ok((await call("/api/benchmarks/list", {}, bob)).benchmarks.some((x) => x.id === b.id && x.service === "Waste"));
+  const opts = (await call("/api/admin/benchmarks", {}, boss)).options;
+  assert.ok(opts.some((o) => o.service === "Waste" && o.authorities === 4) && opts.some((o) => o.service === "Highways"));
+  expectStatus(await call("/api/admin/benchmark-delete", { id: b.id }, boss), 200);
+  for (const [id, who] of made) await call("/api/assessments/delete", { id }, who);
+  // capitals don't matter, accented ones included
+  const ef = [];
+  for (const [n, who, s] of [["West energy", dee, "Énergie"], ["South energy", eve, "ÉNERGIE"], ["East energy", cat, "énergie"], ["North energy", bob, "Énergie"]]) {
+    const r = await call("/api/assessments/save", { name: n, va2: inService(text, s), summary: summary(70) }, who); expectStatus(r, 200); ef.push([r.id, who]);
+  }
+  const en = await call("/api/benchmarks/peers", { assessmentId: ef[3][0] }, bob);
+  assert.equal(en.ok, true); assert.equal(en.count, 3);
+  for (const [id, who] of ef) await call("/api/assessments/delete", { id }, who);
+});
+await test("only the FHRG team removes a service, and not one in use, or Highways", async () => {
+  const list = (await call("/api/services/list", { all: true }, boss)).services;
+  const id = (n) => list.find((s) => s.name === n).id;
+  expectStatus(await call("/api/admin/service-delete", { id: id("Waste") }, ann), 403);
+  const used = await call("/api/admin/service-delete", { id: id("Parks and open spaces") }, boss);
+  expectStatus(used, 400); assert.match(used.error, /used by 1 template/);
+  expectStatus(await call("/api/admin/service-delete", { id: id("Highways") }, boss), 400);
+  expectStatus(await call("/api/admin/service-delete", { id: id("Waste") }, boss), 200);
+  assert.ok(!(await call("/api/services/list", {}, cat)).services.some((s) => s.name === "Waste"));
+});
 
 // ----- administration
 await test("every administration route refuses a member, even a lead", async () => {
-  for (const p of ["overview", "assessments", "authorities", "templates", "template-action", "benchmarks", "benchmark-build", "benchmark-save", "benchmark-delete", "activity"]) expectStatus(await call(`/api/admin/${p}`, {}, ann), 403, p);
+  for (const p of ["overview", "assessments", "authorities", "templates", "template-action", "benchmarks", "benchmark-build", "benchmark-save", "benchmark-delete", "activity", "service-delete"]) expectStatus(await call(`/api/admin/${p}`, {}, ann), 403, p);
   for (const p of ["assessments.csv", "dimensions.csv"]) assert.equal((await send(`/export/${p}`, { method: "GET", token: ann })).status, 403);
 });
 await test("site administrators come from the website's flag as well as SITE_ADMINS", async () => {

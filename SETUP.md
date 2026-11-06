@@ -141,6 +141,8 @@ Tell Claude when you've done step 3, and it can check that the record has change
 - **Leave the pull zone's caching settings as they are.** The toolkit tells it not to keep private pages; an override could make it keep them.
 - **FHRG templates:** add them on the Templates page, or put `.vt2` files in the storage folder `templates/fhrg/`, then open **Admin → Templates**. Ending a file's name in `(Default)` makes it the default for its type. A file with the same name replaces the template, and the toolkit reads it next time it's opened.
 - **Which level a template is for:** open the template, then tick the levels under **Where it can be used**.
+- **Services:** templates and assessments are for a service, Highways to start with. Add the FHRG's other services under **Admin → Templates → Services**. An authority can also add its own when it copies a template.
+- **A template for another service or level:** on the Templates page, choose **Copy**, pick the service and levels, and tick **Move it** to hide the original once the copy is saved. Check the list of names it changed, then tailor and save.
 - **The demonstration:** anyone can open `/demo` without an account. It uses Northbridge, a fictional authority, runs in the browser and saves nothing. To turn it off, add a variable `DEMO` set to `off` and click **Update Container**.
 
 ---
