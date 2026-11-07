@@ -455,8 +455,12 @@ await test("a template's lock travels into its assessments, and a file that does
 });
 await test("a template can say which standard function it's for, in the file and the editor", async () => {
   const tpl = VA.parse(va2(), "t.vt2").doc;
-  tpl.kind = "template"; tpl.function = "hw.winter";
+  tpl.kind = "template"; tpl.function = "hw.winter"; tpl.levels = "function,process";
   const text = VA.write(tpl, {});
+  // it counts only on a Highways template that can be used on functions or processes
+  assert.doesNotMatch(VA.write({ ...tpl, levels: "service" }, {}), /Template Function/);
+  assert.doesNotMatch(VA.write({ ...tpl, service: "Waste" }, {}), /Template Function/);
+  assert.match(VA.write({ ...tpl, levels: "service,process" }, {}), /Template Function/);
   assert.match(text, /Template Function:= hw\.winter\r\n/);
   assert.equal(VA.parse(text, "t.vt2").doc.function, "hw.winter");
   assert.equal(VA.parse(text.replace("hw.winter", "hw.made-up"), "t.vt2").doc.function, "", "only the FHRG's keys are kept");
@@ -465,7 +469,11 @@ await test("a template can say which standard function it's for, in the file and
   // the editor: set it, save, and it's in the file and the list
   const own = JSON.parse(await w.eval(`(async () => JSON.stringify((await Demo.call("/api/templates/list", {})).templates.find((t) => t.name === "Depot options appraisal")))()`));
   w.location.hash = `/templates/${own.id}`;
-  await wait(() => { const d = w.document.querySelector("dialog.ask[open]"); if (d) d.querySelector("button[value=ok]").click(); return w.document.querySelector("#te-fn"); }, "the template editor");
+  await wait(() => { const d = w.document.querySelector("dialog.ask[open]"); if (d) d.querySelector("button[value=ok]").click(); return w.document.querySelector("#te-lock"); }, "the template editor");
+  assert.equal(w.document.querySelector("#te-fn"), null, "not offered for a service-level template");
+  const lv = w.document.querySelector('[data-level="function"]');
+  lv.checked = true; lv.dispatchEvent(new w.Event("change", { bubbles: true }));
+  await wait(() => w.document.querySelector("#te-fn"), "the function's choice once it can be used on functions");
   const pick = (v) => { const s = w.document.querySelector("#te-fn"); s.value = v; s.dispatchEvent(new w.Event("change", { bubbles: true })); };
   pick("hw.drainage");
   w.document.querySelector("#te-save").click();
@@ -481,6 +489,19 @@ await test("a template can say which standard function it's for, in the file and
     cleared = !/Template Function/.test(JSON.parse(await w.eval(`(async () => JSON.stringify(await Demo.call("/api/templates/get", { id: ${own.id} })))()`)).vt2);
   }
   assert.ok(cleared, "the function cleared");
+  // a service-only version doesn't keep it: unticking function level takes the choice away
+  const lv2 = w.document.querySelector('[data-level="function"]');
+  pick("hw.drainage");
+  lv2.checked = false; lv2.dispatchEvent(new w.Event("change", { bubbles: true }));
+  await wait(() => !w.document.querySelector("#te-fn"), "the choice gone with function level");
+  w.document.querySelector("#te-save").click();
+  let gone = false;
+  for (let i = 0; i < 60 && !gone; i++) {
+    await new Promise((r) => setTimeout(r, 100));
+    const g = JSON.parse(await w.eval(`(async () => JSON.stringify(await Demo.call("/api/templates/get", { id: ${own.id} })))()`));
+    gone = !/Template Function/.test(g.vt2) && g.template.std_function === null && !/function/.test(g.template.levels);
+  }
+  assert.ok(gone, "a service-only template keeps no function");
 });
 await test("the template editor locks weightings by default, and says why", async () => {
   w.location.hash = "/templates/5";
@@ -505,6 +526,14 @@ await test("the public page holds no real authority's data, and guidance for onl
   assert.equal(st.length, 4, "Climate Readiness stays in the members' library");
   assert.ok(!/Is there a named senior owner accountable/.test(html));
   for (const s of st) assert.ok(Object.keys(s.guidance).length <= 3, s.name);
+  // five of the FHRG's function templates, value for money and carbon, with factors and weightings only
+  const fn = Array.from(w.eval("FUNCTION_STARTERS"));
+  assert.equal(fn.length, 10);
+  assert.deepEqual([...new Set(fn.map((s) => s.key))].sort(), ["hw.carriageways", "hw.drainage", "hw.street-lighting", "hw.structures", "hw.winter"]);
+  for (const s of fn) {
+    assert.deepEqual(Object.keys(s).sort(), ["description", "key", "levels", "name", "rows", "type"], s.name);
+    assert.ok(Array.from(s.rows).every((r) => r.length === 7 && typeof r[2] === "string" && r[2].length <= 80), s.name);
+  }
 });
 await test("the template names are clean", () => {
   const names = Array.from(w.eval("STARTERS")).flatMap((s) => Array.from(s.rows).map((r) => r[2]));
@@ -959,6 +988,17 @@ await test("an assessment started from the map is offered only the templates tha
   await wait(() => /For Snow clearance on your map/.test(w.document.querySelector("main").textContent), "the templates for the process");
   assert.deepEqual([...w.document.querySelectorAll(".tcard")].filter((c) => c.querySelector("a[href*='template=']")).map((c) => c.querySelector("h3").textContent).sort(),
     ["Programme & Project Business Case", "Winter service Best Practice Carbon", "Winter service Value for Money"]);
+  // and the demonstration refuses to put a carriageways assessment on drainage, as the server does
+  const all = (await demoCall("/api/assessments/list")).assessments, map = await demoCall("/api/org/get");
+  const cwA = all.find((a) => a.name === "Northbridge Carriageways Value for Money 2025-26"), dr = map.items.find((x) => x.name === "Drainage");
+  const why = await demoCall("/api/assessments/attach", { id: cwA.id, itemId: dr.id }).then(() => "", (e) => String(e?.message ?? e));
+  assert.match(why, /from a template for Carriageways, so it goes on that function or a process within it/);
+  // and benchmarks a function assessment only with the same function's: no other authority has one here
+  // even without "same scorecard template", which would otherwise let in other authorities' service assessments
+  const peers = await demoCall("/api/benchmarks/peers", { assessmentId: cwA.id, sameTemplate: false });
+  assert.equal(peers.ok, false); assert.equal(peers.count, 0);
+  const svc = all.find((a) => a.name === "Northbridge Value for Money 2025-26");
+  assert.equal((await demoCall("/api/benchmarks/peers", { assessmentId: svc.id })).ok, true, "the service's own comparison still works");
   // a service with no template of its own says so, and offers no button
   await openMap();
   nodeNamed("Transport").click();
@@ -1035,7 +1075,7 @@ await test("a copy saved as a new assessment stays on the same item, and the ope
   const offer = [...(w.document.querySelector("#ma-pick")?.options || [])].map((o) => o.textContent);
   assert.ok(offer.some((x) => /Drainage culvert renewal case/.test(x)), offer.join(" / "));
   assert.ok(!offer.some((x) => /Value for Money|Carbon|Depot/.test(x)), offer.join(" / "));
-  // and from the editor's side: another function's or the service's assessments aren't offered either
+
   w.document.querySelector("#mi-name").value = "Carriageways <b>and</b> roads";
   w.document.querySelector("#map-item").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
   await wait(() => hubName() === "Carriageways <b>and</b> roads", "the new name");
@@ -1060,6 +1100,10 @@ await test("the organisation map is the home page, and the assessments page keep
   w.location.hash = "/";
   await wait(() => w.document.querySelector(".stage [data-hub]"), "the map at home");
   assert.equal(w.document.querySelector(".nav a[aria-current]").textContent, "Organisation");
+  w.location.hash = "/map";
+  await wait(() => w.document.querySelector(".stage [data-hub]") && w.document.querySelector(".nav a[aria-current]")?.textContent === "Organisation", "the map's own address");
+  w.location.hash = "/new";
+  await wait(() => w.document.querySelector(".nav a[aria-current]")?.textContent === "Assessments", "new assessments under Assessments");
   // an assessment's crumbs lead back to the list, not the map
   const id = (await demoCall("/api/assessments/list")).assessments.find((a) => a.name === "Northbridge Value for Money 2025-26").id;
   w.location.hash = `/a/${id}/scorecard`;

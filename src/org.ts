@@ -17,6 +17,11 @@ const MAX_ITEMS = 600, MAX_FACTS = 40;
 // The standard highways functions a new map starts with (Simon, 6 November 2026). Their keys never change.
 // a standard function's key as a file states it: one of the FHRG's, or none
 export const functionKey = (v: unknown): string | null => { const k = String(v ?? "").trim(); return STANDARD_FUNCTIONS.some(([key]) => key === k) ? k : null; };
+// the function a template is for counts only on a Highways template that can be used on functions or processes
+export function templateFunction(key: unknown, levels: string, service: string): string | null {
+  const fn = functionKey(key);
+  return fn && serviceKey(service) === serviceKey(DEFAULT_SERVICE) && /(^|,)(function|process)(,|$)/.test(levels) ? fn : null;
+}
 export const STANDARD_FUNCTIONS: [string, string][] = [
   ["hw.asset-management", "Asset management and strategy"], ["hw.carriageways", "Carriageways"], ["hw.footways", "Footways and cycleways"],
   ["hw.drainage", "Drainage"], ["hw.structures", "Structures"], ["hw.street-lighting", "Street lighting and illuminated signs"],

@@ -868,6 +868,9 @@ const VA = (() => {
     ["hw.structures", "Structures"], ["hw.street-lighting", "Street lighting and illuminated signs"], ["hw.traffic-signals", "Traffic signals and ITS"], ["hw.winter", "Winter service"],
     ["hw.inspections", "Safety inspections and reactive repairs"], ["hw.network-management", "Network management and street works"], ["hw.road-safety", "Road safety"],
     ["hw.rights-of-way", "Public rights of way"], ["hw.verges", "Verges, trees and grass cutting"], ["hw.design", "Highway design and capital schemes"], ["hw.development", "Development management"]];
+  // a template's standard function counts only on a Highways template that can be used on functions or processes
+  const functionApplies = (doc) => !!doc.function && STD_FUNCTIONS.some(([k]) => k === doc.function)
+    && String(doc.service || "Highways").trim().toLowerCase() === "highways" && /(^|,)(function|process)(,|$)/.test(String(doc.levels || ""));
   const PROFILE_TYPES = ["Value for Money (Highways)", "Best Practice Carbon", "Climate Readiness", "Programme & Project", "Options Analysis"];
   // where in an organisation's structure a template can be used
   const LEVELS = [["organisation", "Organisation"], ["service", "Service"], ["function", "Function"], ["process", "Process"]];
@@ -1526,7 +1529,7 @@ const VA = (() => {
     // the service it's for: an assessment carries its template's
     if (doc.service) settings.push(`   Template Service:= ${flat(doc.service).replace(/\s+/g, " ").trim()}`);
     // the standard function a template is for, if it's for one
-    if (doc.kind === "template" && doc.function && STD_FUNCTIONS.some(([k]) => k === doc.function)) settings.push(`   Template Function:= ${doc.function}`);
+    if (doc.kind === "template" && functionApplies(doc)) settings.push(`   Template Function:= ${doc.function}`);
     if (doc.weightsLocked === false) settings.push("   Weightings Locked:= No");
     // the template's weightings, kept while they're unlocked so scores can be put back on them to compare like for like
     if (doc.weightsLocked === false && doc.kind !== "template" && doc.templateWeights) {
@@ -1815,7 +1818,7 @@ const VA = (() => {
     WEIGHTS_SIMPLE, WEIGHTS_EXPANDED, PALETTE,
     isNum, clean, norm, bracketValue, answerLabel, excelColour, cssToExcel, vbaNum, readNum,
     decodeBytes, encodeCp1252, parse, write, blankDoc, headingFlags, dimensions, factorKey, scaleFor, allScales, renumber,
-    calculate, treeWeights, toTemplate, fromTemplate, clone, setNotApplicable, swapWords, swapService, DEFAULT_SERVICE, STD_FUNCTIONS, weightKey, weightKeys, weightSnapshot, weightsDiffer, restoreTemplateWeights, onTemplateWeights, guidanceFor, answerName, LEVELS, levelsOf, summarise, structureKey, aggregate, stamp, ukDate,
+    calculate, treeWeights, toTemplate, fromTemplate, clone, setNotApplicable, swapWords, swapService, DEFAULT_SERVICE, STD_FUNCTIONS, functionApplies, weightKey, weightKeys, weightSnapshot, weightsDiffer, restoreTemplateWeights, onTemplateWeights, guidanceFor, answerName, LEVELS, levelsOf, summarise, structureKey, aggregate, stamp, ukDate,
   };
 })();
 
@@ -2099,8 +2102,10 @@ const Demo = (() => {
     S.me = { ...ME_BASE, role: role === "member" ? "member" : "lead", siteAdmin: role === "admin" };
   }
 
-  function latestPeers({ profileType, service, structure, year, authorityProfile, excludeAuthority }) {
-    const rows = S.assessments.filter((a) => a.shared && a.summary && a.profile_type === profileType && svcOf(a).toLowerCase() === svcOf({ service }).toLowerCase() && (!structure || a.structure === structure) && (!year || a.reporting_year === year)
+  // as the server's peerSummaries: the same service, and the same standard function (or none)
+  function latestPeers({ profileType, service, fn = null, structure, year, authorityProfile, excludeAuthority }) {
+    const fnOf = (a) => (a.template_id && S.templates.find((x) => x.id === a.template_id)?.std_function) || "";
+    const rows = S.assessments.filter((a) => a.shared && a.summary && a.profile_type === profileType && svcOf(a).toLowerCase() === svcOf({ service }).toLowerCase() && fnOf(a) === (fn || "") && (!structure || a.structure === structure) && (!year || a.reporting_year === year)
       && (!authorityProfile || a.authority_profile === authorityProfile) && (!excludeAuthority || a.authority_id !== excludeAuthority))
       .sort((a, b) => (a.updated < b.updated ? 1 : -1));
     const seen = new Map();
@@ -2131,6 +2136,8 @@ const Demo = (() => {
     switch (path) {
       case "/api/templates/list":
         return { templates: S.templates.filter((t) => ((t.scope_id === 0 && t.visible) || t.scope_id === S.me.authorityId) && (!b.service || svcOf(t).toLowerCase() === String(b.service).toLowerCase()))
+          // in the server's order: the FHRG's first, then by type, standard first, then name
+          .sort((x, z) => (x.scope_id === 0 ? 0 : 1) - (z.scope_id === 0 ? 0 : 1) || String(x.profile_type || "").localeCompare(String(z.profile_type || "")) || (z.is_default ? 1 : 0) - (x.is_default ? 1 : 0) || x.name.localeCompare(z.name))
           .map((t) => ({ ...pubT(t), used: S.assessments.filter((a) => a.template_id === t.id && a.authority_id === S.me.authorityId).length })) };
       case "/api/templates/hide": {
         const t = findT(b.id);
@@ -2250,7 +2257,7 @@ const Demo = (() => {
         if (scope === 0 && !S.me.siteAdmin) fail("Only the FHRG team can save FHRG templates. Save it for your authority instead.", 403);
         if (S.templates.some((x) => x.scope_id === scope && x.name.toLowerCase() === name.toLowerCase() && x.id !== (t && t.id))) fail(scope === 0 ? "The FHRG already has a template with that name." : "Your authority already has a template with that name.", 409, { field: "name" });
         const doc = VA.parse(b.vt2, "x.vt2").doc;
-        const fields = { name, profile_type: b.profileType || doc.profile.Profile_Type || null, description: b.description || null, levels: b.levels || doc.levels || "service", service: svcOf({ service: b.service || doc.service }), std_function: VA.STD_FUNCTIONS.some(([k]) => k === doc.function) ? doc.function : null, factors: doc.rows.length, dimensions: VA.dimensions(doc.rows).length,
+        const fields = { name, profile_type: b.profileType || doc.profile.Profile_Type || null, description: b.description || null, levels: b.levels || doc.levels || "service", service: svcOf({ service: b.service || doc.service }), std_function: VA.functionApplies({ ...doc, levels: b.levels || doc.levels, service: svcOf({ service: b.service || doc.service }) }) ? doc.function : null, factors: doc.rows.length, dimensions: VA.dimensions(doc.rows).length,
           structure: VA.structureKey(doc), bytes: b.vt2.length, vt2: b.vt2, updated: nowIso(0), updated_by: S.me.email };
         delete fields._doc;
         if (t) { Object.assign(t, fields, { version: t.version + 1 }); delete t._doc; log("va-save-template", { name }); return { saved: true, id: t.id, version: t.version, updated: t.updated, updated_by: t.updated_by, scope_id: t.scope_id }; }
@@ -2325,7 +2332,7 @@ const Demo = (() => {
       case "/api/benchmarks/peers": {
         const a = findA(b.assessmentId);
         if (!a.profile_type) fail("Choose the assessment's type on the Profile tab, and save it, to compare it with other authorities.");
-        const filters = { profileType: a.profile_type, service: svcOf(a), structure: b.sameTemplate === false ? "" : a.structure, year: b.sameYear ? a.reporting_year : "", authorityProfile: b.sameProfile ? a.authority_profile : "", excludeAuthority: a.authority_id };
+        const filters = { profileType: a.profile_type, service: svcOf(a), fn: (a.template_id && S.templates.find((x) => x.id === a.template_id)?.std_function) || null, structure: b.sameTemplate === false ? "" : a.structure, year: b.sameYear ? a.reporting_year : "", authorityProfile: b.sameProfile ? a.authority_profile : "", excludeAuthority: a.authority_id };
         const peers = latestPeers(filters);
         if (peers.length < 3) return { ok: false, count: peers.length, minPeers: 3, message: `${peers.length ? `Only ${peers.length} other authorit${peers.length === 1 ? "y has" : "ies have"}` : "No other authority has"} shared a matching assessment. At least 3 are needed before averages are shown, so no authority's own answers can be worked out.` };
         return { ok: true, count: peers.length, minPeers: 3, filters, benchmark: VA.aggregate(peers.map((p) => p.summary), b.statistic === "median" ? "median" : "mean") };
@@ -4675,7 +4682,7 @@ function mapAssessments(it) {
   return `<section class="map-assess" aria-labelledby="ma-h"><h3 class="h3" id="ma-h">Assessments</h3>
     ${here.length ? `<ul class="ma-list">${here.map((a) => `<li><a class="title" href="${href(`/a/${a.id}/scorecard`)}" data-nav>${esc(a.name)}</a>
         <span class="small muted">${esc([a.profile_type, a.reporting_year].filter(Boolean).join(" · ") || "No type set")} · score <b>${f1(a.score)}</b> · ${Math.round((a.completeness || 0) * 100)}% complete</span>
-        ${assessmentFits(a, it, items) ? "" : `<span class="chip warn" title="Its template's levels or its service have changed since it was put here.">Doesn't fit here any more</span>`}
+        ${assessmentFits(a, it, items) ? "" : `<span class="chip warn" title="Its template's levels, service or function have changed since it was put here.">Doesn't fit here any more</span>`}
         <button class="link-btn small" type="button" data-unplace="${a.id}">Take it off the map</button></li>`).join("")}</ul>`
       : `<p class="small muted">None on ${esc(it.name)} yet.</p>`}
     <div class="row">${canStart ? `<a class="btn small" href="${href(`/new?item=${it.id}`)}" data-nav>${ICON.plus} Start an assessment here</a>` : ""}</div>
@@ -4750,7 +4757,7 @@ async function pageTemplates() {
   const can = (t) => A.me.siteAdmin || (!t.fhrg && (t.created_by === A.me.email || A.me.role === "lead"));
   const card = (t) => `<article class="tcard"><div class="row" style="justify-content:space-between"><span class="chip">${esc(t.profile_type || "Any type")}</span>${t.is_default ? `<span class="chip navy">FHRG standard</span>` : ""}</div>
     <h3>${esc(t.name)}</h3>${t.description ? `<p>${esc(t.description)}</p>` : ""}
-    <p class="small"><strong>${esc(svcName(t))}</strong> · ${esc(levelsText(t.levels))} level · ${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")}${t.used ? ` · used by ${plural(t.used, "of your assessments", "of your assessments")}` : ""}<br>Updated ${esc(ago(t.updated))}${t.updated_by ? ` by ${esc(t.updated_by)}` : ""}</p>
+    <p class="small"><strong>${esc(svcName(t))}</strong>${t.std_function ? ` · for ${esc(VA.STD_FUNCTIONS.find(([k]) => k === t.std_function)?.[1] || "")}` : ""} · ${esc(levelsText(t.levels))} level · ${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")}${t.used ? ` · used by ${plural(t.used, "of your assessments", "of your assessments")}` : ""}<br>Updated ${esc(ago(t.updated))}${t.updated_by ? ` by ${esc(t.updated_by)}` : ""}</p>
     <div class="row"><a class="btn small" href="${href(`/new?template=${t.id}`)}" data-nav>Use</a><a class="btn small secondary" href="${href(`/templates/${t.id}`)}" data-nav>${can(t) ? "Edit" : "Look inside"}</a><button class="btn small quiet" type="button" data-copy="${t.id}" title="Copy to another service or level, or for your authority">Copy</button><button class="btn small quiet" type="button" data-dl="${t.id}">${ICON.down}<span class="visually-hidden">Download ${esc(t.name)}</span></button></div></article>`;
   main().innerHTML = page("Scorecard templates", `
     <h2 class="h3">FHRG templates</h2><p class="muted small">Kept by the FHRG team for every member authority. Copy one to adapt it for your authority.</p>
@@ -4838,9 +4845,9 @@ async function copyTemplate(t) {
     doc.kind = "template";
     const saved = svcName({ service: doc.service || r.template.service });
     const changes = saved.toLowerCase() !== to.toLowerCase() ? VA.swapService(doc, saved, to) : [];
-    if (saved.toLowerCase() !== to.toLowerCase()) doc.function = "";
     doc.service = to;
     doc.levels = VA.LEVELS.map(([k]) => k).filter((k) => v[`lv_${k}`]).join(",");
+    if (saved.toLowerCase() !== to.toLowerCase() || !VA.functionApplies(doc)) doc.function = "";
     const before = r.template.description || doc.description || "", description = VA.swapWords(before, saved, to);
     if (description !== before) changes.push({ where: "Description", before, after: description });
     const profileType = VA.swapWords(r.template.profile_type || doc.profile.Profile_Type || "", saved, to);
@@ -4962,8 +4969,8 @@ function renderTe() {
         <div class="field" style="grid-column:1/-1"><label for="te-desc">Description</label><textarea id="te-desc" style="min-height:4.5rem" ${dis}>${esc(te.description)}</textarea></div>
         <fieldset class="field" style="grid-column:1/-1;border:0;padding:0;margin:0"><legend>Where it can be used</legend><p class="hint">The levels of an organisation's structure this scorecard can be attached to.</p>
           <div class="row">${VA.LEVELS.map(([k, l]) => `<label class="check"><input type="checkbox" data-level="${k}" ${VA.levelsOf(doc.levels || te.meta?.levels).some(([x]) => x === k) ? "checked" : ""} ${dis}> ${l}</label>`).join("")}</div></fieldset>
-        <div class="field" style="grid-column:1/-1"><label for="te-fn">For a standard function</label><select id="te-fn" ${dis}><option value="">Any function</option>${VA.STD_FUNCTIONS.map(([k, l]) => `<option value="${k}" ${doc.function === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
-          <p class="hint">A template for one standard function is offered only there and on the processes within it. Functions an authority adds can use any.</p></div>
+        ${VA.functionApplies({ ...doc, function: "hw.carriageways" }) ? `<div class="field" style="grid-column:1/-1"><label for="te-fn">For a standard function</label><select id="te-fn" ${dis}><option value="">Any function</option>${VA.STD_FUNCTIONS.map(([k, l]) => `<option value="${k}" ${doc.function === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>
+          <p class="hint">A template for one standard function is offered only there and on the processes within it. Functions an authority adds can use any.</p></div>` : ""}
         <div class="field" style="grid-column:1/-1"><label class="check"><input type="checkbox" id="te-lock" ${doc.weightsLocked !== false ? "checked" : ""} ${dis}> <span>Lock the weightings in assessments made from it</span></label>
           <p class="hint">Recommended, so assessments compare like for like in benchmarking. Members can still unlock them, after a warning that it may break benchmarking.</p></div>
       </form></div>
@@ -4997,16 +5004,18 @@ function renderTe() {
   $("#te-desc").addEventListener("input", (e) => { te.description = e.target.value; teDirty(); });
   $("#te-lock")?.addEventListener("change", (e) => { te.doc.weightsLocked = e.target.checked; teDirty(); });
   $("#te-svc").addEventListener("change", async (e) => {
-    if (e.target.value) { te.doc.service = e.target.value; teDirty(); renderTeKeep(); return; }
+    if (e.target.value) { te.doc.service = e.target.value; if (!VA.functionApplies(te.doc)) te.doc.function = ""; teDirty(); renderTeKeep(); return; }
     const name = await askText("Add a service", "Service", "", "Add", te.scope === "fhrg" ? "It's added to the FHRG's list, for every member authority." : `It's added to ${esc(A.me.authority)}'s list.`);
     if (!name) { e.target.value = svcName(te.doc); return; }
     try {
       const r = await api("/api/services/add", { name, scope: te.scope === "fhrg" ? "fhrg" : "authority" });
       await services(true);
-      te.doc.service = r.service.name; teDirty(); renderTeKeep();
+      te.doc.service = r.service.name; if (!VA.functionApplies(te.doc)) te.doc.function = ""; teDirty(); renderTeKeep();
     } catch (err) { e.target.value = svcName(te.doc); fail(err); }
   });
-  $$("[data-level]").forEach((c) => c.addEventListener("change", () => { const on = $$("[data-level]").filter((x) => x.checked).map((x) => x.dataset.level); te.doc.levels = on.join(",") || "service"; teDirty(); }));
+  $$("[data-level]").forEach((c) => c.addEventListener("change", () => { const on = $$("[data-level]").filter((x) => x.checked).map((x) => x.dataset.level); const could = !!$("#te-fn"); te.doc.levels = on.join(",") || "service"; if (!VA.functionApplies(te.doc)) te.doc.function = ""; teDirty();
+    // the function's choice appears or goes as the levels allow it
+    if (could !== VA.functionApplies({ ...te.doc, function: "hw.carriageways" })) renderTeKeep(); }));
   $("#te-scope")?.addEventListener("change", (e) => { te.scope = e.target.value; teDirty(); });
   $("#te-fn")?.addEventListener("change", (e) => { te.doc.function = e.target.value; teDirty(); });
   $("#te-wm").addEventListener("change", (e) => {
