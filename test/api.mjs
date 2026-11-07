@@ -711,6 +711,27 @@ await test("an assessment from a hidden FHRG template keeps that template's leve
   const r = await call("/api/assessments/attach", { id: a.id, itemId: cw.id }, bob);
   expectStatus(r, 400); assert.match(r.error, /The FHRG team sets the levels of its templates/);
 });
+await test("a template for one standard function goes only on that function and the processes within it", async () => {
+  const forFn = (key) => `${va2()}Begin Template Settings\r\n   Template Function:= ${key}\r\nEnd Section\r\n`;
+  const cwT = await call("/api/templates/save", { name: "Carriageways only", vt2: forFn("hw.carriageways"), levels: "function,process" }, bob);
+  expectStatus(cwT, 200);
+  assert.equal((await call("/api/templates/list", {}, bob)).templates.find((x) => x.id === cwT.id).std_function, "hw.carriageways");
+  const odd = await call("/api/templates/save", { name: "Made-up function", vt2: forFn("hw.not-a-function"), levels: "function" }, bob);
+  assert.equal((await call("/api/templates/list", {}, bob)).templates.find((x) => x.id === odd.id).std_function, null, "only the FHRG's keys count");
+  let m = await call("/api/org/get", {}, bob);
+  const cw = m.items.find((x) => x.std_key === "hw.carriageways"), dr = m.items.find((x) => x.std_key === "hw.drainage"), hw = m.items.find((x) => x.std_key === "svc.highways");
+  const proc = await call("/api/org/item", { action: "add", parentId: cw.id, name: "Surface dressing" }, bob);
+  const own = await call("/api/org/item", { action: "add", parentId: hw.id, name: "Fleet and depots" }, bob);
+  const save = (name, orgItemId) => call("/api/assessments/save", { name, va2: va2(), templateId: cwT.id, orgItemId, summary: summary(50) }, bob);
+  expectStatus(await save("On carriageways", cw.id), 200);
+  expectStatus(await save("On surface dressing", proc.id), 200, "a process within it");
+  expectStatus(await save("On an own function", own.id), 200, "a function the authority added can use any");
+  const r = await save("On drainage", dr.id);
+  expectStatus(r, 400); assert.match(r.error, /from a template for Carriageways, so it goes on that function or a process within it/);
+  const listed = (await call("/api/assessments/list", {}, bob)).assessments.find((a) => a.name === "On carriageways");
+  assert.equal(listed.template_function, "hw.carriageways");
+  expectStatus(await call("/api/assessments/attach", { id: listed.id, itemId: dr.id }, bob), 400);
+});
 await test("no file was stored outside the toolkit's folder", () => {
   assert.deepEqual([...store.keys()].filter((k) => !k.startsWith("value-analyser/")), []);
 });

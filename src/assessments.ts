@@ -57,7 +57,8 @@ export async function handleAssessmentList(c: Config, request: Request): Promise
   const aid = me.siteAdmin && Number(b.authorityId) ? Number(b.authorityId) : me.authorityId;
   // with each one's template's levels (null when it has no template), so the page decides where it fits as placeFor does,
   // even when the template is hidden from the list
-  const rows = await q(c, `SELECT ${ASSESSMENT_COLS}, (SELECT COALESCE(t.levels, 'service') FROM va_templates t WHERE t.id = va_assessments.template_id) AS template_levels${b.withSummary ? ", summary" : ""}
+  const rows = await q(c, `SELECT ${ASSESSMENT_COLS}, (SELECT COALESCE(t.levels, 'service') FROM va_templates t WHERE t.id = va_assessments.template_id) AS template_levels,
+    (SELECT t.std_function FROM va_templates t WHERE t.id = va_assessments.template_id) AS template_function${b.withSummary ? ", summary" : ""}
     FROM va_assessments WHERE authority_id = ? ORDER BY updated DESC`, aid);
   return json({ assessments: rows.map((a) => publicAssessment(a, !!b.withSummary)), authority: me.authorityName });
 }
