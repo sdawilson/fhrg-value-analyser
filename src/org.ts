@@ -7,7 +7,8 @@ import { requireMe } from "./accounts";
 import type { Config } from "./config";
 import type { Row, Stmt } from "./db";
 import { audit, exec, q } from "./db";
-import { DEFAULT_SERVICE, checkServiceName, cleanService, listedService } from "./services";
+import { DEFAULT_SERVICE, checkServiceName, cleanService, listedService, serviceKey } from "./services";
+import { cleanLevels } from "./templates";
 import { FriendlyError, json, now, readJsonBody } from "./util";
 
 export const LEVEL_BELOW: Record<string, string> = { organisation: "service", service: "function", function: "process" };
@@ -157,6 +158,8 @@ export async function handleOrgItem(c: Config, request: Request): Promise<Respon
       const list = [...gone];
       await exec(c, [
         ...list.map((id): Stmt => ({ sql: "DELETE FROM va_property_values WHERE item_id = ?", args: [id] })),
+        // assessments on what's removed stay, off the map
+        ...list.map((id): Stmt => ({ sql: "UPDATE va_assessments SET org_item_id = NULL WHERE org_item_id = ? AND authority_id = ?", args: [id, aid] })),
         ...list.map((id): Stmt => ({ sql: "DELETE FROM va_org_items WHERE id = ?", args: [id] })),
         audit(me.email, "va-org-remove", { authority: aid, name: it.name, items: list.length }),
       ]);
@@ -213,4 +216,43 @@ export async function handleOrgFactAdd(c: Config, request: Request): Promise<Res
     audit(me.email, "va-org-fact-add", { authority: aid, name }),
   ]);
   return json({ ok: true, id: r[0].lastId });
+}
+
+// ------------------------------------------------------------- assessments on the map
+// An assessment can be put on one item of its own authority's map, at a level its template allows (an assessment
+// with no template, such as one brought in from the Excel tool, can go at any level), and, below the organisation,
+// only within its own service: a Waste assessment doesn't go on a Highways function.
+export async function placeFor(c: Config, a: Row, itemId: unknown): Promise<Row> {
+  const it = await itemFor(c, a.authority_id, itemId);
+  const tpl = a.template_id ? (await q(c, "SELECT levels, scope_id FROM va_templates WHERE id = ?", a.template_id))[0] : null;
+  const levels = tpl ? cleanLevels(tpl.levels).split(",") : null;
+  const word = (l: string) => (l === "organisation" ? "the organisation" : `a ${l}`);
+  if (levels && !levels.includes(it.level)) {
+    const how = tpl!.scope_id === 0 ? "The FHRG team sets the levels of its templates." : "A template's levels are set in the template editor.";
+    throw new FriendlyError(`${a.name} is from a template for ${levels.join(", ")} level, so it can't go on ${word(it.level)}. ${how}`, 400, "itemId");
+  }
+  if (it.level !== "organisation") {
+    const all = await q(c, "SELECT id, parent_id, level, service FROM va_org_items WHERE authority_id = ?", a.authority_id);
+    let up: Row | undefined = all.find((x) => x.id === it.id);
+    while (up && up.level !== "service") up = all.find((x) => x.id === up!.parent_id);
+    const service = up ? cleanService(up.service) : DEFAULT_SERVICE;
+    if (serviceKey(service) !== serviceKey(a.service)) throw new FriendlyError(`${a.name} is for ${cleanService(a.service)}, and ${it.name} is part of ${service}.`, 400, "itemId");
+  }
+  return it;
+}
+
+// Putting an assessment on the map, moving it, or taking it off (itemId 0). Anyone who can save it can place it.
+export async function handleAttach(c: Config, request: Request): Promise<Response> {
+  const me = await requireMe(c, request);
+  const b = await readJsonBody(request);
+  const a = (await q(c, "SELECT id, authority_id, name, template_id, service, org_item_id FROM va_assessments WHERE id = ?", Number(b.id) || 0))[0];
+  if (!a || (a.authority_id !== me.authorityId && !me.siteAdmin)) throw new FriendlyError("That assessment wasn't found. It may have been deleted.", 404);
+  const it = Number(b.itemId) ? await placeFor(c, a, b.itemId) : null;
+  await exec(c, [
+    // written only while the item is still on the authority's map
+    it ? { sql: "UPDATE va_assessments SET org_item_id = ? WHERE id = ? AND EXISTS (SELECT 1 FROM va_org_items WHERE id = ? AND authority_id = ?)", args: [it.id, a.id, it.id, a.authority_id] }
+      : { sql: "UPDATE va_assessments SET org_item_id = NULL WHERE id = ?", args: [a.id] },
+    audit(me.email, it ? "va-place-assessment" : "va-unplace-assessment", { id: a.id, name: a.name, item: it ? it.name : null }),
+  ]);
+  return json({ ok: true, itemId: it ? it.id : null });
 }

@@ -105,7 +105,7 @@ await test("Climate Readiness is one of the assessment types", () => {
 });
 
 // ----- the demonstration
-const wait = async (fn, what) => { for (let i = 0; i < 120; i++) { if (fn()) return; await new Promise((r) => setTimeout(r, 50)); } throw new Error(`Waited for ${what}`); };
+const wait = async (fn, what) => { for (let i = 0; i < 120; i++) { if (fn()) return; await new Promise((r) => setTimeout(r, 50)); } throw new Error(`Waited for ${typeof what === "function" ? what() : what}`); };
 await test("the demonstration is Northbridge, and says it's fictional", async () => {
   await wait(() => /Northbridge/.test(w.document.body.textContent), "Northbridge");
   assert.match(w.document.querySelector(".demo-bar").textContent, /Northbridge is fictional and nothing you change here is saved/);
@@ -869,12 +869,156 @@ await test("a member can't remove the standard items, only the lead", async () =
   w.document.querySelector("[data-crumb='0']").click();
   await wait(() => hubName() === "Northbridge Council", "back to the top");
 });
+// ----- assessments on the map
+const panelText = () => w.document.querySelector("#map-panel")?.textContent || "";
+const panelLinks = () => [...w.document.querySelectorAll("#map-panel .ma-list a.title")].map((a) => a.textContent);
+await test("the map shows each item's assessments, and opens them", async () => {
+  await openMap();
+  assert.equal(nodeNamed("Highways").querySelector(".bub-n").textContent, "8", "a count on the circle");
+  assert.match(nodeNamed("Highways").textContent, /15 functions · 8 assessments/);
+  assert.equal(nodeNamed("Transport").querySelector(".bub-n"), null);
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways" && /Assessments/.test(panelText()), "Highways and its assessments");
+  assert.match(w.document.querySelector("[data-hub]").textContent, /8 assessments/);
+  assert.equal(panelLinks().length, 8);
+  assert.ok(panelLinks().includes("Northbridge Value for Money 2025-26"));
+  assert.equal(nodeNamed("Carriageways").querySelector(".bub-n").textContent, "1");
+  nodeNamed("Carriageways").click();
+  await wait(() => hubName() === "Carriageways", "Carriageways");
+  assert.deepEqual(panelLinks(), ["Resurfacing programme business case"]);
+  // open it, and come back to where it sits
+  w.document.querySelector("#map-panel .ma-list a.title").click();
+  await wait(() => /Resurfacing programme business case/.test(w.document.querySelector("#ws-title")?.textContent || ""), "the assessment");
+  const back = [...w.document.querySelectorAll(".ws-head .meta a")].find((a) => a.textContent === "Carriageways");
+  assert.ok(back, "it says where it is on the map");
+  back.click();
+  await wait(() => hubName() === "Carriageways" && /Resurfacing/.test(panelText()), "back on the map at Carriageways");
+  assert.deepEqual([...w.document.querySelectorAll(".map-crumbs button")].map((b) => b.textContent), ["Northbridge Council", "Highways", "Carriageways"]);
+});
+await test("an assessment started from the map is offered only the templates that fit, and starts on the item", async () => {
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways", "Highways");
+  nodeNamed("Drainage").click();
+  await wait(() => hubName() === "Drainage" && w.document.querySelector("#map-panel a[href*='item=']"), "Drainage's start button");
+  w.document.querySelector("#map-panel a[href*='item=']").click();
+  await wait(() => /For Drainage on your map/.test(w.document.querySelector("main").textContent), "the templates for Drainage");
+  const offered = [...w.document.querySelectorAll(".tcard")].filter((c) => c.querySelector("a[href*='template=']")).map((c) => c.querySelector("h3").textContent);
+  assert.deepEqual(offered, ["Programme & Project Business Case"], `only the template allowed at function level: ${offered.join(" / ")}`);
+  w.document.querySelector(".tcard a.btn").click();
+  await wait(() => w.document.querySelector("#nf"), "the new assessment form");
+  assert.match(w.document.querySelector("aside").textContent, /it'll go on Drainage/);
+  w.document.querySelector("#nf-name").value = "Drainage culvert renewal case";
+  w.document.querySelector("#nf").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await wait(() => /Drainage culvert renewal case/.test(w.document.querySelector("#ws-title")?.textContent || ""), "the new assessment");
+  assert.ok([...w.document.querySelectorAll(".ws-head .meta a")].some((a) => a.textContent === "Drainage"));
+  const org = await demoCall("/api/org/get"), list = (await demoCall("/api/assessments/list")).assessments;
+  assert.equal(list.find((a) => a.name === "Drainage culvert renewal case").org_item_id, org.items.find((x) => x.name === "Drainage").id);
+  // a service with no template of its own says so, and offers no button
+  await openMap();
+  nodeNamed("Transport").click();
+  await wait(() => hubName() === "Transport", "Transport");
+  assert.equal(w.document.querySelector("#map-panel a[href*='item=']"), null);
+  assert.match(panelText(), /No template is set for service level for Transport yet/);
+});
+await test("an assessment is taken off the map and put back from the panel", async () => {
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways" && panelLinks().length === 8, "Highways' eight");
+  const row = [...w.document.querySelectorAll("#map-panel .ma-list li")].find((li) => /Value for Money 2023-24/.test(li.textContent));
+  row.querySelector("[data-unplace]").click();
+  await wait(() => panelLinks().length === 7, "seven left");
+  const vfm = (await demoCall("/api/assessments/list")).assessments.find((a) => /Value for Money 2023-24/.test(a.name));
+  assert.equal(vfm.org_item_id, null, "taken off the map, still in the list");
+  const pick = w.document.querySelector("#ma-pick");
+  assert.ok([...pick.options].some((o) => Number(o.value) === vfm.id), "offered to put back");
+  assert.ok([...pick.options].some((o) => o.textContent === "Resurfacing programme business case (now on Carriageways)"), "one elsewhere is offered as a move");
+  set(pick, String(vfm.id));
+  w.document.querySelector("#ma-place").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await wait(() => panelLinks().length === 8, "back to eight");
+});
+await test("removing an item keeps its assessments, and says so first", async () => {
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways", "Highways");
+  w.document.querySelector("#map-add-name").value = "Pothole pilot";
+  w.document.querySelector("#map-add").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await wait(() => nodeNamed("Pothole pilot"), "the new function");
+  nodeNamed("Pothole pilot").click();
+  await wait(() => hubName() === "Pothole pilot" && w.document.querySelector("#map-panel a[href*='item=']"), "its start button");
+  w.document.querySelector("#map-panel a[href*='item=']").click();
+  await wait(() => w.document.querySelector(".tcard a.btn"), "the templates");
+  w.document.querySelector(".tcard a.btn").click();
+  await wait(() => w.document.querySelector("#nf"), "the form");
+  w.document.querySelector("#nf-name").value = "Pothole pilot case";
+  w.document.querySelector("#nf").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await wait(() => /Pothole pilot case/.test(w.document.querySelector("#ws-title")?.textContent || ""), () => `the new assessment (${w.document.querySelector("#nf-msg")?.textContent || w.document.querySelector("main").textContent.slice(0, 200)})`);
+  [...w.document.querySelectorAll(".ws-head .meta a")].find((a) => a.textContent === "Pothole pilot").click();
+  await wait(() => hubName() === "Pothole pilot" && w.document.querySelector("#mi-remove"), "back on the map");
+  w.document.querySelector("#mi-remove").click();
+  await wait(() => w.document.querySelector("dialog.ask[open]"), "the question");
+  assert.match(w.document.querySelector("dialog.ask[open]").textContent, /The assessment on it stays in your list, off the map/);
+  w.document.querySelector("dialog.ask[open] button[value=ok]").click();
+  await wait(() => hubName() === "Highways" && !nodeNamed("Pothole pilot"), "the item gone");
+  const kept = (await demoCall("/api/assessments/list")).assessments.find((a) => a.name === "Pothole pilot case");
+  assert.ok(kept); assert.equal(kept.org_item_id, null);
+});
+await test("a copy saved as a new assessment stays on the same item, and the open one follows changes on the map", async () => {
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways", "Highways");
+  nodeNamed("Carriageways").click();
+  await wait(() => hubName() === "Carriageways" && panelLinks().length === 1, "Carriageways' business case");
+  w.document.querySelector("#map-panel .ma-list a.title").click();
+  await wait(() => /Resurfacing programme business case/.test(w.document.querySelector("#ws-title")?.textContent || ""), "the assessment");
+  w.document.querySelector('[data-act="saveas"]').click();
+  await wait(() => w.document.querySelector("dialog[open] #dlg-text"), "the name");
+  w.document.querySelector("dialog[open] #dlg-text").value = "Resurfacing programme option B";
+  w.document.querySelector("dialog[open] button[value=ok]").click();
+  await wait(() => /option B/.test(w.document.querySelector("#ws-title")?.textContent || ""), "the copy");
+  assert.ok([...w.document.querySelectorAll(".ws-head .meta a")].some((a) => a.textContent === "Carriageways"), "the copy says it's on Carriageways");
+  const copy = (await demoCall("/api/assessments/list")).assessments.find((a) => a.name === "Resurfacing programme option B");
+  const cw = (await demoCall("/api/org/get")).items.find((x) => x.name === "Carriageways");
+  assert.equal(copy.org_item_id, cw.id, "and it is");
+  // renamed on the map: the open assessment shows the new name
+  [...w.document.querySelectorAll(".ws-head .meta a")].find((a) => a.textContent === "Carriageways").click();
+  await wait(() => hubName() === "Carriageways" && w.document.querySelector("#mi-name"), "the map");
+  assert.equal(panelLinks().length, 2);
+  // only what fits a function is offered to put here: not the service-level value for money assessments
+  const offer = [...(w.document.querySelector("#ma-pick")?.options || [])].map((o) => o.textContent);
+  assert.ok(offer.some((x) => /Drainage culvert renewal case/.test(x)), offer.join(" / "));
+  assert.ok(!offer.some((x) => /Value for Money|Carbon|Depot/.test(x)), offer.join(" / "));
+  w.document.querySelector("#mi-name").value = "Carriageways <b>and</b> roads";
+  w.document.querySelector("#map-item").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await wait(() => hubName() === "Carriageways <b>and</b> roads", "the new name");
+  assert.equal(w.document.querySelector("#map-panel b b, #map-panel h2 b"), null, "a name is shown as text");
+  acceptLeave();
+  w.location.hash = `/a/${copy.id}/scorecard`;
+  await wait(() => [...w.document.querySelectorAll(".ws-head .meta a")].some((a) => a.textContent === "Carriageways <b>and</b> roads"), "the new name on the assessment");
+  // the new-assessment page names it as text too
+  acceptLeave();
+  w.location.hash = `/new?item=${cw.id}`;
+  await wait(() => /For Carriageways <b>and<\/b> roads on your map/.test(w.document.querySelector("main").textContent), "the new-assessment page");
+  assert.equal(w.document.querySelector("main .notice b"), null);
+  // put the name back
+  await demoCall("/api/org/item", { action: "rename", id: cw.id, name: "Carriageways" });
+});
+await test("a page someone has left doesn't paint its error over the next one", async () => {
+  acceptLeave();
+  w.location.hash = "/a/999999";
+  await new Promise((r) => setTimeout(r, 20));
+  w.location.hash = "/guidance";
+  await wait(() => (acceptLeave(), /How the Value Analyser works/.test(w.document.querySelector("main h1")?.textContent || "")), "the guidance");
+  await new Promise((r) => setTimeout(r, 400));
+  assert.doesNotMatch(w.document.querySelector("main").textContent, /Something went wrong/);
+  assert.match(w.document.querySelector("main h1").textContent, /How the Value Analyser works/);
+});
 await test("the sign-in card offers the Northbridge demonstration beside Sign in, as Clarion's does", async () => {
   // an earlier test may leave unsaved changes: say yes to leaving them
   const leave = () => w.document.querySelector("dialog.ask[open] button[value=ok]")?.click();
   leave();
   w.location.hash = "/";
-  await wait(() => (leave(), w.document.querySelector("#signout") && /Northbridge Value for Money 2025-26/.test(w.document.querySelector("#main").textContent)), "the assessments");
+  await wait(() => (leave(), w.document.querySelector("#signout") && w.document.querySelector("#list-body") && /Northbridge Value for Money 2025-26/.test(w.document.querySelector("#main").textContent)), "the assessments");
   w.document.querySelector("#signout").click();
   await wait(() => (leave(), w.document.querySelector("#signin")), "the sign-in card");
   const card = w.document.querySelector(".auth-sign .auth-card");
