@@ -9,9 +9,10 @@ import { audit, exec, q } from "./db";
 import { VA_TYPE, fileName, storageDelete, storageGet, storagePut, storageText } from "./storage";
 import { FriendlyError, checkName, cleanText, excelDate, json, now, num, readJsonBody, safeParse, ukStamp } from "./util";
 import { listedService } from "./services";
+import { placeFor } from "./org";
 import { checkVaFile, encodeCp1252, headerValue, structureKey, vaRows } from "./vafile";
 
-export const ASSESSMENT_COLS = "id, authority_id, name, profile_type, reporting_year, authority_profile, template_id, template_name, service, structure, score, confidence, opportunity, answered_score, completeness, answered, factors, shared, version, bytes, created, created_by, updated, updated_by";
+export const ASSESSMENT_COLS = "id, authority_id, name, profile_type, reporting_year, authority_profile, template_id, template_name, service, org_item_id, structure, score, confidence, opportunity, answered_score, completeness, answered, factors, shared, version, bytes, created, created_by, updated, updated_by";
 
 export async function assessmentFor(c: Config, me: Me, id: number): Promise<Row> {
   const a = (await q(c, `SELECT a.*, au.name AS authority_name, au.slug AS authority_slug FROM va_assessments a JOIN authorities au ON au.id = a.authority_id WHERE a.id = ?`, id))[0];
@@ -63,7 +64,8 @@ export async function handleAssessmentOpen(c: Config, request: Request): Promise
   const a = await assessmentFor(c, me, Number(b.id) || 0);
   const text = await storageText(c, a.file_key);
   if (text === null) throw new FriendlyError("The assessment's file is missing from storage. Please let the FHRG team know.", 404);
-  return json({ assessment: { ...publicAssessment(a), authority_name: a.authority_name }, va2: text });
+  const place = a.org_item_id ? (await q(c, "SELECT id, name, level FROM va_org_items WHERE id = ? AND authority_id = ?", a.org_item_id, a.authority_id))[0] || null : null;
+  return json({ assessment: { ...publicAssessment(a), authority_name: a.authority_name, place }, va2: text });
 }
 
 export async function handleAssessmentSave(c: Config, request: Request): Promise<Response> {
@@ -92,6 +94,14 @@ export async function handleAssessmentSave(c: Config, request: Request): Promise
   }
   const clash = (await q(c, "SELECT id FROM va_assessments WHERE authority_id = ? AND name_key = ? AND id <> ?", authorityId, name.toLowerCase(), id))[0];
   if (clash) throw new FriendlyError("Your authority already has an assessment with that name. Choose another, or open that one.", 409, "name", { clashId: clash.id });
+  let templateId: number | null = Number(b.templateId) || null;
+  if (templateId) {
+    const tpl = (await q(c, "SELECT id, scope_id, name FROM va_templates WHERE id = ?", templateId))[0];
+    if (!tpl || (tpl.scope_id !== 0 && tpl.scope_id !== authorityId)) templateId = null;
+  }
+  const service = await listedService(c, headerValue(text, "Template Service"), authorityId);
+  // made from the map: checked to fit the item before anything is written
+  const place = !existing && Number(b.orgItemId) ? await placeFor(c, { authority_id: authorityId, name, template_id: templateId, service }, b.orgItemId) : null;
   const key = `assessments/${authoritySlug}/${fileName(name)}.va2`;
   // version history (optional): keep the file being replaced
   let versionStmt: Stmt | null = null;
@@ -107,14 +117,9 @@ export async function handleAssessmentSave(c: Config, request: Request): Promise
   const bytes = encodeCp1252(text);
   await storagePut(c, key, bytes, VA_TYPE);
   const rows = vaRows(text);
-  let templateId: number | null = Number(b.templateId) || null;
-  if (templateId) {
-    const tpl = (await q(c, "SELECT id, scope_id, name FROM va_templates WHERE id = ?", templateId))[0];
-    if (!tpl || (tpl.scope_id !== 0 && tpl.scope_id !== authorityId)) templateId = null;
-  }
   const shared = b.shared === false || b.shared === 0 ? 0 : 1;
   const cols = [name, name.toLowerCase(), key, cleanText(String(b.profileType ?? summary?.type ?? ""), 100) || null, cleanText(String(b.reportingYear ?? summary?.year ?? ""), 20) || null,
-    cleanText(String(b.authorityProfile ?? summary?.authorityProfile ?? ""), 100) || null, templateId, cleanText(b.templateName, 150) || null, await listedService(c, headerValue(text, "Template Service"), authorityId), structureKey(rows),
+    cleanText(String(b.authorityProfile ?? summary?.authorityProfile ?? ""), 100) || null, templateId, cleanText(b.templateName, 150) || null, service, structureKey(rows),
     summary?.totals?.score ?? null, summary?.totals?.conf ?? null, summary?.totals?.opp ?? null, summary?.answeredScore ?? null, summary?.completeness ?? null,
     summary?.answered ?? null, summary?.factorCount ?? null, shared, summary ? JSON.stringify(summary) : null, bytes.length];
   let newId = id, version = 1;
@@ -130,9 +135,10 @@ export async function handleAssessmentSave(c: Config, request: Request): Promise
     if (existing.file_key !== key) await storageDelete(c, existing.file_key);
     if (versionStmt) await pruneVersions(c, id);
   } else {
+    if (place) cols.push(place.id);
     const r = await exec(c, [
       { sql: `INSERT INTO va_assessments (name, name_key, file_key, profile_type, reporting_year, authority_profile, template_id, template_name, service, structure, score, confidence, opportunity,
-          answered_score, completeness, answered, factors, shared, summary, bytes, authority_id, version, created, created_by, updated, updated_by) VALUES (${new Array(26).fill("?").join(", ")})`,
+          answered_score, completeness, answered, factors, shared, summary, bytes, ${place ? "org_item_id, " : ""}authority_id, version, created, created_by, updated, updated_by) VALUES (${new Array(place ? 27 : 26).fill("?").join(", ")})`,
         args: [...cols, authorityId, 1, t, me.email, t, me.email] },
       audit(me.email, b.imported ? "va-import-assessment" : "va-new-assessment", { name, authority: authorityId === me.authorityId ? me.authorityName : authoritySlug }),
     ]);

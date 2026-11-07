@@ -609,6 +609,61 @@ await test("missing settings are named, never their values", async () => {
   assert.equal(r.status, 500); assert.match(t, /STORAGE_ZONE/);
   expectStatus(a, 500); assert.match(a.error, /STORAGE_ZONE/);
 });
+// ----- assessments on the map
+await test("an assessment goes on the map where its template allows, within its own service", async () => {
+  const m = await call("/api/org/get", {}, bob);
+  const root = m.items.find((x) => x.level === "organisation"), hw = m.items.find((x) => x.std_key === "svc.highways");
+  const cw = m.items.find((x) => x.std_key === "hw.carriageways");
+  const fnT = await call("/api/templates/save", { name: "Function scorecard", vt2: va2(), levels: "service,function" }, bob);
+  const svcT = await call("/api/templates/save", { name: "Service scorecard", vt2: va2(), levels: "service" }, bob);
+  expectStatus(fnT, 200); expectStatus(svcT, 200);
+  // made from the map: it starts on the item
+  const made = await call("/api/assessments/save", { name: "Carriageways VfM", va2: va2(), templateId: fnT.id, orgItemId: cw.id, summary: summary(55) }, bob);
+  expectStatus(made, 200);
+  const listed = () => call("/api/assessments/list", {}, bob).then((r) => r.assessments);
+  assert.equal((await listed()).find((a) => a.id === made.id).org_item_id, cw.id);
+  // a service-level template's assessment can't be made on a function, and nothing is written when it's refused
+  const wrong = await call("/api/assessments/save", { name: "Wrong level", va2: va2(), templateId: svcT.id, orgItemId: cw.id, summary: summary(55) }, bob);
+  expectStatus(wrong, 400); assert.match(wrong.error, /template for service level, so it can't go on a function/);
+  assert.ok(!files("assessments/").some((k) => k.includes("Wrong level")));
+  assert.ok(!(await listed()).some((a) => a.name === "Wrong level"));
+  // put on the map later, moved, and taken off again
+  const svcA = await call("/api/assessments/save", { name: "Highways service 2026", va2: va2(), templateId: svcT.id, summary: summary(60) }, bob);
+  assert.equal((await listed()).find((a) => a.id === svcA.id).org_item_id, null, "not on the map until it's put there");
+  expectStatus(await call("/api/assessments/attach", { id: svcA.id, itemId: hw.id }, bob), 200);
+  expectStatus(await call("/api/assessments/attach", { id: svcA.id, itemId: cw.id }, bob), 400, "not on a function");
+  expectStatus(await call("/api/assessments/attach", { id: svcA.id, itemId: root.id }, bob), 400, "not on the organisation");
+  assert.equal((await listed()).find((a) => a.id === svcA.id).org_item_id, hw.id, "a refused move leaves it where it was");
+  const off = await call("/api/assessments/attach", { id: svcA.id, itemId: 0 }, ann);
+  expectStatus(off, 200); assert.equal(off.itemId, null);
+  assert.equal((await listed()).find((a) => a.id === svcA.id).org_item_id, null);
+  // an assessment for another service stays out of Highways; one brought in without a template can go at any level
+  const waste = await call("/api/assessments/save", { name: "Waste 2026", va2: inService(va2(), "Waste"), summary: summary(40) }, bob);
+  const r = await call("/api/assessments/attach", { id: waste.id, itemId: cw.id }, bob);
+  expectStatus(r, 400); assert.match(r.error, /is for Waste, and Carriageways is part of Highways/);
+  expectStatus(await call("/api/assessments/attach", { id: waste.id, itemId: root.id }, bob), 200, "the organisation takes any service");
+});
+await test("assessments and maps stay with their own authority", async () => {
+  const bobs = (await call("/api/assessments/list", {}, bob)).assessments.find((a) => a.name === "Highways service 2026");
+  const hw = (await call("/api/org/get", {}, bob)).items.find((x) => x.std_key === "svc.highways");
+  const catHw = (await call("/api/org/get", {}, cat)).items.find((x) => x.std_key === "svc.highways");
+  expectStatus(await call("/api/assessments/attach", { id: bobs.id, itemId: hw.id }, cat), 404, "not another authority's assessment");
+  expectStatus(await call("/api/assessments/attach", { id: bobs.id, itemId: catHw.id }, bob), 404, "not onto another authority's map");
+  const catT = await call("/api/templates/save", { name: "East scorecard", vt2: va2() }, cat);
+  expectStatus(await call("/api/assessments/save", { name: "East made on North", va2: va2(), templateId: catT.id, orgItemId: hw.id, summary: summary(50) }, cat), 404);
+  expectStatus(await call("/api/assessments/attach", { id: bobs.id, itemId: hw.id }, boss), 200, "the FHRG team can, on the authority's own map");
+  expectStatus(await call("/api/assessments/attach", { id: bobs.id, itemId: hw.id }, null), 401);
+});
+await test("removing an item from the map keeps its assessments, off the map", async () => {
+  const m = await call("/api/org/get", {}, bob), hw = m.items.find((x) => x.std_key === "svc.highways");
+  const fnT = (await call("/api/templates/list", {}, bob)).templates.find((t) => t.name === "Function scorecard");
+  const tmp = await call("/api/org/item", { action: "add", parentId: hw.id, name: "Temporary works" }, bob);
+  const a = await call("/api/assessments/save", { name: "Temporary works 2026", va2: va2(), templateId: fnT.id, orgItemId: tmp.id, summary: summary(50) }, bob);
+  expectStatus(a, 200);
+  expectStatus(await call("/api/org/item", { action: "remove", id: tmp.id }, bob), 200);
+  const kept = (await call("/api/assessments/list", {}, bob)).assessments.find((x) => x.id === a.id);
+  assert.ok(kept, "the assessment stays"); assert.equal(kept.org_item_id, null);
+});
 await test("no file was stored outside the toolkit's folder", () => {
   assert.deepEqual([...store.keys()].filter((k) => !k.startsWith("value-analyser/")), []);
 });

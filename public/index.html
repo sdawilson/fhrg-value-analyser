@@ -193,6 +193,14 @@ main:focus { outline: none; }
 .nd.sel .bub { box-shadow: 0 0 0 3px var(--navy); }
 .nd-label { font-weight: 700; font-size: 0.88rem; line-height: 1.15; } .nd-sub { font-size: 0.76rem; line-height: 1.15; color: var(--ink-soft); }
 .map-add input { max-width: 22rem; }
+.bub-n { position: absolute; top: -4px; right: -4px; min-width: 22px; height: 22px; padding: 0 5px; border-radius: 11px; display: grid; place-items: center;
+  background: var(--navy); color: #fff; font-size: 0.72rem; font-weight: 800; box-shadow: 0 0 0 2px var(--white); }
+.map-assess { margin: 0.75rem 0 0.25rem; padding: 0.75rem 0.85rem; border-radius: var(--radius); background: var(--paper); border: 1px solid var(--haze); }
+.map-assess .h3 { margin: 0 0 0.5rem; } .map-assess .row { margin-top: 0.5rem; }
+.ma-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; }
+.ma-list li { display: grid; gap: 0.1rem; padding-bottom: 0.55rem; border-bottom: 1px solid var(--haze); } .ma-list li:last-child { border-bottom: 0; padding-bottom: 0; }
+.ma-list .title { font-weight: 700; } .ma-list .link-btn { justify-self: start; font-size: 0.82rem; color: var(--ink-soft); }
+.ma-place select { flex: 1 1 12rem; min-width: 0; }
 .kid-weights { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
 .kid-weights th, .kid-weights td { padding: 0.3rem 0.35rem; border-bottom: 1px solid var(--haze); text-align: left; vertical-align: middle; }
 .kid-weights .num { text-align: right; white-space: nowrap; } .kid-weights select { padding: 0.2rem 0.4rem; }
@@ -1898,6 +1906,19 @@ const Demo = (() => {
   const orgOf = (aid) => ({ authority: authorityName(aid), items: S.orgItems.filter((x) => x.authority_id === aid).map((x) => ({ ...x })),
     properties: S.props.filter((p) => p.scope_id === 0 || p.scope_id === aid).map((p) => ({ id: p.id, fhrg: p.scope_id === 0, key: p.key, name: p.name, kind: p.kind, unit: p.unit, choices: [...p.choices] })),
     values: Object.fromEntries(Object.entries(S.orgValues).filter(([id]) => S.orgItems.some((x) => x.id === Number(id) && x.authority_id === aid)).map(([id, v]) => [id, { ...v }])) });
+  function placeFor(a, itemId) {
+    const it = orgItem(a.authority_id, itemId);
+    const tpl = a.template_id ? S.templates.find((x) => x.id === a.template_id) : null;
+    const levels = tpl ? VA.levelsOf(tpl.levels).map(([k]) => k) : null;
+    if (levels && !levels.includes(it.level)) fail(`${a.name} is from a template for ${levels.join(", ")} level, so it can't go on ${it.level === "organisation" ? "the organisation" : `a ${it.level}`}. A template's levels are set in the template editor.`, 400, { field: "itemId" });
+    if (it.level !== "organisation") {
+      let up = it;
+      while (up && up.level !== "service") up = S.orgItems.find((x) => x.id === up.parent_id);
+      const service = up ? svcOf(up) : VA.DEFAULT_SERVICE;
+      if (service.toLowerCase() !== svcOf(a).toLowerCase()) fail(`${a.name} is for ${svcOf(a)}, and ${it.name} is part of ${service}.`, 400, { field: "itemId" });
+    }
+    return it;
+  }
   const orgItem = (aid, id) => { const it = S.orgItems.find((x) => x.id === Number(id)); if (!it || it.authority_id !== aid) fail("That isn't on your map. It may have been removed.", 404); return it; };
   // as the server's checkServiceName: refused, not changed, when the Excel tool's files couldn't hold it
   const serviceName = (v) => {
@@ -1966,12 +1987,15 @@ const Demo = (() => {
     if (S.templates.length) return;
     // FHRG templates
     const CARBON = 2, OWN_TEMPLATE = STARTERS.length + 1;
+    // the demonstration's business case template can be used on a function or process too, so the map shows one there
+    const demoLevels = (st) => (st.type === "Programme & Project" ? "service,function,process" : st.levels || "service");
     STARTERS.forEach((st, i) => {
       const doc = docFromStarter(st);
+      doc.levels = demoLevels(st);
       const text = VA.write(doc, { organisation: "Future Highways Research Group", user: "" });
       S.templates.push({ id: i + 1, scope_id: 0, name: st.name, profile_type: st.type, description: st.description, factors: doc.rows.length,
         dimensions: VA.dimensions(doc.rows).length, structure: VA.structureKey(doc), is_default: !!st.isDefault, visible: true, version: 1, bytes: text.length,
-        created: nowIso(200), created_by: "fhrg.team@example.org", updated: nowIso(30 - i), updated_by: "fhrg.team@example.org", vt2: text, authority_name: null, levels: st.levels || "service", service: VA.DEFAULT_SERVICE });
+        created: nowIso(200), created_by: "fhrg.team@example.org", updated: nowIso(30 - i), updated_by: "fhrg.team@example.org", vt2: text, authority_name: null, levels: demoLevels(st), service: VA.DEFAULT_SERVICE });
     });
     // one template of Northbridge's own: the options appraisal with its own answer scale
     {
@@ -2011,6 +2035,10 @@ const Demo = (() => {
     S.assessments.push(opt("Depot review - Option A Retain and refurbish", 0.48, "Keep the existing depot and refurbish the salt barn and workshops."));
     S.assessments.push(opt("Depot review - Option B Shared depot", 0.63, "Share a depot with a neighbouring authority."));
     S.assessments.push(opt("Depot review - Option C Contractor's depot", 0.52, "Use the term contractor's depot under the new contract."));
+    // on Northbridge's map: the service's own assessments on Highways, and the resurfacing business case on carriageways
+    orgSeed(1);
+    const at = (key) => S.orgItems.find((x) => x.authority_id === 1 && x.std_key === key).id;
+    S.assessments.forEach((a) => { if (a.authority_id === 1) a.org_item_id = /business case/.test(a.name) ? at("hw.carriageways") : at("svc.highways"); });
     // other authorities' shared assessments, for benchmarking (never shown individually)
     for (const a of AUTHORITIES.slice(1)) {
       S.assessments.push(make(a, 1, prof(a, `${a.name.split(" ")[0]} VfM 2024-25`, "Value for Money (Highways)", "2024/25"), a.maturity, 0.92 + rnd() * 0.08, 20 + a.id));
@@ -2045,7 +2073,7 @@ const Demo = (() => {
   }
 
   const fail = (message, status = 400, extra = {}) => { const e = new Error(message); e.status = status; Object.assign(e, extra); throw e; };
-  const pubA = (a, withSummary) => { const { va2, summary, ...rest } = a; return { ...rest, ...(withSummary ? { summary: clone(summary) } : {}) }; };
+  const pubA = (a, withSummary) => { const { va2, summary, ...rest } = a; return { ...rest, org_item_id: a.org_item_id ?? null, ...(withSummary ? { summary: clone(summary) } : {}) }; };
   const pubT = (t) => { const { vt2, _doc, ...rest } = t; return { ...rest, fhrg: t.scope_id === 0, service: svcOf(t), visible: t.visible !== false }; };
   const mine = (a) => a.authority_id === S.me.authorityId || S.me.siteAdmin;
   const findA = (id) => { const a = S.assessments.find((x) => x.id === Number(id)); if (!a || !mine(a)) fail("That assessment wasn't found. It may have been deleted.", 404); return a; };
@@ -2076,6 +2104,13 @@ const Demo = (() => {
         return { ok: true, visible: t.visible };
       }
       case "/api/org/get": { const aid = S.me.siteAdmin && Number(b.authorityId) ? Number(b.authorityId) : S.me.authorityId; orgSeed(aid); return orgOf(aid); }
+      case "/api/assessments/attach": {
+        const a = findA(b.id);
+        const it = Number(b.itemId) ? placeFor(a, b.itemId) : null;
+        a.org_item_id = it ? it.id : null;
+        log(it ? "va-place-assessment" : "va-unplace-assessment", { name: a.name });
+        return { ok: true, itemId: a.org_item_id };
+      }
       case "/api/org/item": {
         const aid = S.me.siteAdmin && Number(b.authorityId) ? Number(b.authorityId) : S.me.authorityId, below = { organisation: "service", service: "function", function: "process" };
         if (b.action === "add") {
@@ -2115,6 +2150,7 @@ const Demo = (() => {
           if (gone.size > 1 && b.withEverything !== true) fail(`${it.name} has ${gone.size - 1} item${gone.size === 2 ? "" : "s"} below it.`, 409, { below: gone.size - 1 });
           if (!S.me.siteAdmin && S.me.role !== "lead" && S.orgItems.some((x) => gone.has(x.id) && x.created_by !== S.me.email)) fail("Someone else added items below this, so only your authority's lead can remove it.", 403);
           S.orgItems = S.orgItems.filter((x) => !gone.has(x.id)); gone.forEach((id) => delete S.orgValues[id]);
+          S.assessments.forEach((a) => { if (gone.has(a.org_item_id)) a.org_item_id = null; });
           return { ok: true, removed: gone.size };
         }
         fail("Unknown action.");
@@ -2196,7 +2232,10 @@ const Demo = (() => {
         const aid = S.me.siteAdmin && b.authorityId ? Number(b.authorityId) : S.me.authorityId;
         return { assessments: S.assessments.filter((a) => a.authority_id === aid).sort((x, y) => (x.updated < y.updated ? 1 : -1)).map((a) => pubA(a, b.withSummary)), authority: S.me.authority };
       }
-      case "/api/assessments/open": { const a = findA(b.id); return { assessment: { ...pubA(a), authority_name: authorityName(a.authority_id) }, va2: a.va2 }; }
+      case "/api/assessments/open": {
+        const a = findA(b.id), it = a.org_item_id ? S.orgItems.find((x) => x.id === a.org_item_id && x.authority_id === a.authority_id) : null;
+        return { assessment: { ...pubA(a), authority_name: authorityName(a.authority_id), place: it ? { id: it.id, name: it.name, level: it.level } : null }, va2: a.va2 };
+      }
       case "/api/assessments/save": {
         const name = String(b.name || "").trim();
         if (name.length < 3) fail("Give the assessment a name of at least 3 characters.", 400, { field: "name" });
@@ -2208,12 +2247,13 @@ const Demo = (() => {
         if (clash) fail("Your authority already has an assessment with that name. Choose another, or open that one.", 409, { field: "name", clashId: clash.id });
         const doc = VA.parse(b.va2, "x.va2").doc;
         const t = Number(b.templateId) ? S.templates.find((x) => x.id === Number(b.templateId)) : null;
+        const place = !a && Number(b.orgItemId) ? placeFor({ authority_id: aid, name, template_id: t ? t.id : null, service: svcOf(doc) }, b.orgItemId) : null;
         if (a) {
           S.versions.unshift({ id: S.nextId++, assessment_id: a.id, version: a.version, bytes: a.va2.length, saved: a.updated, saved_by: a.updated_by, reason: b.reason || null, va2: a.va2 });
           Object.assign(a, { name, version: a.version + 1, updated: nowIso(0), updated_by: S.me.email, shared: b.shared !== false });
           if (t) { a.template_id = t.id; a.template_name = t.name; }
         } else {
-          a = { id: S.nextId++, authority_id: aid, name, template_id: t ? t.id : null, template_name: t ? t.name : (b.templateName || null), shared: b.shared !== false, version: 1,
+          a = { id: S.nextId++, authority_id: aid, name, template_id: t ? t.id : null, template_name: t ? t.name : (b.templateName || null), shared: b.shared !== false, version: 1, org_item_id: place ? place.id : null,
             created: nowIso(0), created_by: S.me.email, updated: nowIso(0), updated_by: S.me.email };
           S.assessments.push(a);
         }
@@ -2936,7 +2976,7 @@ const ROUTES = [
   [/^\/a\/(local|\d+)(?:\/(scorecard|profile|report|benchmark))?$/, (m) => pageWorkspace(m[1], m[2] || "scorecard")],
   [/^\/compare$/, (m, q) => pageCompare(q)],
   [/^\/templates$/, () => pageTemplates()],
-  [/^\/map$/, () => pageMap()],
+  [/^\/map$/, (m, q) => pageMap(q)],
   [/^\/templates\/(new|local|\d+)$/, (m, q) => pageTemplateEditor(m[1], q)],
   [/^\/benchmarks$/, () => pageBenchmarks()],
   [/^\/benchmarks\/(\d+)$/, (m) => pageBenchmark(Number(m[1]))],
@@ -2982,6 +3022,8 @@ async function route() {
       try { await fn(m, query); }
       catch (e) {
         console.error(e);
+        // a page someone has already left doesn't paint over the one they went to
+        if (currentPath !== path) return;
         main().innerHTML = page("Something went wrong", `<div class="notice error"><p>${esc(e.message || e)}</p></div><p><a href="${href("/")}" data-nav>Back to your assessments</a></p>`);
       }
       return;
@@ -3166,20 +3208,28 @@ async function pageNew(q) {
   setTitle("New assessment");
   if (!(await leaveOk())) return;
   const tpls = await templates(true);
+  // started from the map: only the templates that fit the item are offered, and the assessment starts on it
+  let item = null;
+  if (q && Number(q.get("item"))) {
+    try { A.org = await api("/api/org/get"); } catch { /* offered every template, off the map */ }
+    item = A.org?.items.find((x) => x.id === Number(q.get("item"))) || null;
+  }
+  const fits = (t) => !item || templateFits(t, item, A.org.items);
   const pick = q && q.get("template") ? tpls.find((t) => String(t.id) === q.get("template")) : null;
-  if (pick) return newForm(pick);
-  const fh = tpls.filter((t) => t.fhrg), own = tpls.filter((t) => !t.fhrg && t.visible !== false);
+  if (pick) return newForm(pick, item && fits(pick) ? item : null);
+  const fh = tpls.filter((t) => t.fhrg && fits(t) && (!item || t.visible !== false)), own = tpls.filter((t) => !t.fhrg && t.visible !== false && fits(t));
   const card = (t) => `<article class="tcard"><div class="row" style="justify-content:space-between"><span class="chip">${esc(t.profile_type || "Any type")}</span>${t.is_default ? `<span class="chip navy">FHRG standard</span>` : ""}</div>
     <h3>${esc(t.name)}</h3>${t.description ? `<p>${esc(t.description)}</p>` : ""}<p class="small"><strong>${esc(svcName(t))}</strong> · ${esc(levelsText(t.levels))} level · ${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")}</p>
-    <div class="row"><a class="btn small" href="${href(`/new?template=${t.id}`)}" data-nav>Use this template</a><a class="btn small quiet" href="${href(`/templates/${t.id}`)}" data-nav>Look inside</a></div></article>`;
-  main().innerHTML = page("New assessment", `
-    <h2 class="h3">FHRG templates</h2><div class="cards">${fh.map(card).join("") || `<div class="empty">No FHRG templates yet.</div>`}</div>
+    <div class="row"><a class="btn small" href="${href(`/new?template=${t.id}${item ? `&item=${item.id}` : ""}`)}" data-nav>Use this template</a><a class="btn small quiet" href="${href(`/templates/${t.id}`)}" data-nav>Look inside</a></div></article>`;
+  const forItem = item ? `<div class="notice info"><p>For <strong>${esc(item.name)}</strong> on your map${item.level === "organisation" ? "" : `, a ${esc(item.level)} in ${esc(itemService(A.org.items, item))}`}. Only the templates that fit it are shown. <a href="${href("/new")}" data-nav>Show every template</a></p></div>` : "";
+  main().innerHTML = page("New assessment", `${forItem}
+    <h2 class="h3">FHRG templates</h2><div class="cards">${fh.map(card).join("") || `<div class="empty">${item ? `None of the FHRG's templates fit ${esc(item.name)}.` : "No FHRG templates yet."}</div>`}</div>
     <h2 class="h3" style="margin-top:2rem">Your authority's templates</h2>
     <div class="cards">${own.map(card).join("")}<article class="tcard" style="border-style:dashed"><h3>Make your own</h3><p>Start from a blank scorecard or a copy of any template, then set your own dimensions, factors and weightings.</p><div class="row"><a class="btn small secondary" href="${href("/templates/new")}" data-nav>Open the template editor</a></div></article></div>
     <p style="margin-top:2rem"><a href="${href("/open")}" data-nav>Or open a .va2 file saved by the Excel tool</a></p>`,
   "Choose the scorecard to assess against. You can change the weightings for this assessment as you go.");
 }
-async function newForm(t) {
+async function newForm(t, item = null) {
   setTitle("New assessment");
   const typeDefault = t.profile_type || VA.PROFILE_TYPES[0];
   const year = currentYear();
@@ -3195,6 +3245,7 @@ async function newForm(t) {
     <div class="row"><button class="btn" type="submit">Create the assessment</button><a class="btn secondary" href="${href("/new")}" data-nav>Choose another template</a></div>
   </form>
   <aside class="muted-box"><h2 class="h3" style="margin-top:0">${esc(t.name)}</h2>${t.description ? `<p>${esc(t.description)}</p>` : ""}<p class="small">${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")} · ${VA.levelsOf(t.levels).map(([, l]) => l).join(", ")} level${t.fhrg ? " · FHRG template" : " · your authority's template"}</p>
+    ${item ? `<p class="small"><strong>On your map:</strong> it'll go on ${esc(item.name)}.</p>` : ""}
     <p class="small">The assessment is saved in the Excel tool's format (.va2), so it also opens in the Value Analyser II workbook.</p></aside></div>`,
   `From the template <strong>${esc(t.name)}</strong>.`);
   $("#nf").addEventListener("submit", async (e) => {
@@ -3204,12 +3255,14 @@ async function newForm(t) {
       try {
         const { vt2 } = await api("/api/templates/get", { id: t.id });
         const tpl = VA.parse(vt2, "template.vt2").doc;
-        const name = f.name.value.trim();
+        // fields read through elements, as form.name is the form's own name, not the field called "name"
+        const el = (n) => f.elements.namedItem(n);
+        const name = el("name").value.trim();
         const doc = VA.fromTemplate(tpl, {
-          Profile_Name: name, Profile_Type: f.type.value, Profile_Reporting_Year: f.year.value, Profile_Authority_Type: f.ap.value,
-          Profile_Authority_Name: A.me.authority, Profile_Assessor_Name: f.assessor.value.trim(), Profile_Assessor_eMail: A.me.email, Profile_Date: VA.ukDate(),
+          Profile_Name: name, Profile_Type: el("type").value, Profile_Reporting_Year: el("year").value, Profile_Authority_Type: el("ap").value,
+          Profile_Authority_Name: A.me.authority, Profile_Assessor_Name: el("assessor").value.trim(), Profile_Assessor_eMail: A.me.email, Profile_Date: VA.ukDate(),
         });
-        const r = await saveDoc({ id: 0, doc, name, templateId: t.id, templateName: t.name, shared: f.share.checked });
+        const r = await saveDoc({ id: 0, doc, name, templateId: t.id, templateName: t.name, shared: el("share").checked, orgItemId: item ? item.id : 0 });
         A.ws = null;
         toast("Assessment created.");
         go(`/a/${r.id}/scorecard`);
@@ -3221,13 +3274,13 @@ async function newForm(t) {
   });
 }
 // writes an assessment and saves it (new when id is 0)
-async function saveDoc({ id, doc, name, templateId = null, templateName = null, shared = true, baseVersion = 0, force = false, imported = false, bench = null, authorityId = 0 }) {
+async function saveDoc({ id, doc, name, templateId = null, templateName = null, shared = true, baseVersion = 0, force = false, imported = false, bench = null, authorityId = 0, orgItemId = 0 }) {
   doc.profile.Profile_Name = name;
   const calc = VA.calculate(doc, bench);
   const text = VA.write(doc, { organisation: A.me.authority, user: A.me.email, calc, keepFileBench: !bench });
   const summary = VA.summarise(doc, bench ? VA.calculate(doc) : calc);
   return await api("/api/assessments/save", {
-    id, name, va2: text, summary, baseVersion, force, imported, shared, templateId, templateName, authorityId,
+    id, name, va2: text, summary, baseVersion, force, imported, shared, templateId, templateName, authorityId, orgItemId,
     profileType: doc.profile.Profile_Type || "", reportingYear: doc.profile.Profile_Reporting_Year || "", authorityProfile: doc.profile.Profile_Authority_Type || "",
   });
 }
@@ -3383,7 +3436,7 @@ function renderWs(tab) {
   main().innerHTML = `<div class="wrap ws">
     <p class="crumbs small"><a href="${href("/")}" data-nav>Assessments</a> › ${esc(name)}</p>
     <div class="ws-head"><div><h1 id="ws-title">${esc(name)}</h1>
-      <p class="meta"><span>${esc(p.Profile_Type || "No type set")}</span><span>${esc(p.Profile_Authority_Name || ws.meta.authority_name || A.me.authority)}</span>${p.Profile_Reporting_Year ? `<span>${esc(p.Profile_Reporting_Year)}</span>` : ""}${ws.meta.template_name ? `<span>Template: ${esc(ws.meta.template_name)}</span>` : ""}${ws.doc.weighting === "tree" ? `<span>Tree weighting</span>` : ""}</p></div>
+      <p class="meta"><span>${esc(p.Profile_Type || "No type set")}</span><span>${esc(p.Profile_Authority_Name || ws.meta.authority_name || A.me.authority)}</span>${p.Profile_Reporting_Year ? `<span>${esc(p.Profile_Reporting_Year)}</span>` : ""}${ws.meta.template_name ? `<span>Template: ${esc(ws.meta.template_name)}</span>` : ""}${ws.doc.weighting === "tree" ? `<span>Tree weighting</span>` : ""}${ws.meta.place ? `<span>On the map: <a href="${href(`/map?item=${ws.meta.place.id}`)}" data-nav>${esc(ws.meta.place.name)}</a></span>` : ""}</p></div>
       <div class="ws-actions"><span class="status-pill" id="ws-status"></span><button class="btn" id="ws-save" type="button">Save</button>
         <details class="menu"><summary class="btn secondary">More</summary><div class="panel">
           <button type="button" data-act="saveas">Save as a new assessment<span>A copy with its own name, such as another option</span></button>
@@ -4413,15 +4466,45 @@ const mapWeights = (w) => [...new Set([...WEIGHTS, w])].sort((a, z) => z - a).ma
 const owner = (name) => `${name}${/s$/i.test(name) ? "'" : "'s"}`;
 const factValue = (p, v) => (v === undefined || v === "" ? "" : p.kind === "money" ? `£${Number(v).toLocaleString("en-GB")}` : p.kind === "number" ? Number(v).toLocaleString("en-GB") : v);
 
-async function pageMap() {
+// What can go where, as the server's placeFor: an item takes assessments from templates for its level (one with no
+// template can go anywhere) and, below the organisation, only within its own service.
+const sameService = (x, y) => String(x || VA.DEFAULT_SERVICE).toLowerCase() === String(y || VA.DEFAULT_SERVICE).toLowerCase();
+function itemService(items, it) {
+  let up = it;
+  while (up && up.level !== "service") up = items.find((x) => x.id === up.parent_id);
+  return up ? up.service || up.name : VA.DEFAULT_SERVICE;
+}
+const atLevel = (levels, level) => VA.levelsOf(levels).some(([k]) => k === level);
+const templateFits = (t, it, items) => atLevel(t.levels, it.level) && (it.level === "organisation" || sameService(svcName(t), itemService(items, it)));
+function assessmentFits(a, it, items, tpls) {
+  const t = a.template_id ? tpls.find((x) => x.id === a.template_id) : null;
+  return (!t || atLevel(t.levels, it.level)) && (it.level === "organisation" || sameService(a.service, itemService(items, it)));
+}
+// the trail to an item: opened in the middle, or for a process, selected beside its function
+function showOnMap(itemId) {
+  const items = A.org?.items || [], it = items.find((x) => x.id === itemId);
+  if (!it) return;
+  const chain = [];
+  for (let up = BELOW[it.level] ? it : items.find((x) => x.id === it.parent_id); up && up.level !== "organisation"; up = items.find((x) => x.id === up.parent_id)) chain.unshift(up.id);
+  mapState.path = chain;
+  mapState.sel = it.id;
+}
+
+async function pageMap(q) {
   setTitle("Organisation");
   main().innerHTML = `<div class="wrap page"><p class="muted">Drawing the map…</p></div>`;
-  try { A.org = await api("/api/org/get"); await services(); }
+  try { await loadMap(); }
   catch (e) { main().innerHTML = page("Organisation", `<div class="notice error"><p>${esc(e.message)}</p></div>`); return; }
+  if (q && Number(q.get("item"))) showOnMap(Number(q.get("item")));
   drawMap();
 }
+async function loadMap() {
+  const [org, list] = await Promise.all([api("/api/org/get"), assessments(true), templates(), services()]);
+  A.org = org;
+  A.mapAs = list;
+}
 async function reloadMap(msg) {
-  try { A.org = await api("/api/org/get"); await services(); drawMap(); if (msg) toast(msg); } catch (e) { fail(e); }
+  try { await loadMap(); drawMap(); if (msg) toast(msg); } catch (e) { fail(e); }
 }
 function drawMap() {
   const d = A.org, items = d.items, byId = new Map(items.map((x) => [x.id, x]));
@@ -4437,15 +4520,19 @@ function drawMap() {
   const weightOf = (x) => (x.weight > 0 ? x.weight : 0);
   const shareIn = (x) => { const sibs = x.parent_id ? kids(x.parent_id) : [x], tot = sibs.reduce((a, y) => a + weightOf(y), 0); return tot ? weightOf(x) / tot : 0; };
   const { pts, arcs, lv } = placeAround(children.map(weightOf), 33, 37);
-  const below = BELOW[hub.level], subOf = (x) => { const n = kids(x.id).length, b = BELOW[x.level]; return b && n ? plural(n, b === "process" ? "process" : b, PLURAL[b]) : ""; };
+  const onItem = (id) => (A.mapAs || []).filter((a) => a.org_item_id === id);
+  const below = BELOW[hub.level], subOf = (x) => {
+    const n = kids(x.id).length, b = BELOW[x.level], k = onItem(x.id).length;
+    return [b && n ? plural(n, b === "process" ? "process" : b, PLURAL[b]) : "", k ? plural(k, "assessment") : ""].filter(Boolean).join(" · ");
+  };
   const nodes = children.map((x, i) => `<button type="button" class="nd ${pts[i].side} lv-${x.level} ${x.id === sel.id ? "sel" : ""}" style="left:${pts[i].x}%;top:${pts[i].y}%" data-node="${x.id}"
-      aria-label="${esc(`${x.name}: ${pct(shareIn(x))} of ${hub.name}. ${BELOW[x.level] ? "Open" : "Select"}`)}">
-      <span class="bub"><span class="bub-v">${pct(shareIn(x))}</span></span>
+      aria-label="${esc(`${x.name}: ${pct(shareIn(x))} of ${hub.name}${onItem(x.id).length ? `, ${plural(onItem(x.id).length, "assessment")}` : ""}. ${BELOW[x.level] ? "Open" : "Select"}`)}">
+      <span class="bub"><span class="bub-v">${pct(shareIn(x))}</span>${onItem(x.id).length ? `<span class="bub-n" aria-hidden="true">${onItem(x.id).length}</span>` : ""}</span>
       <span class="nd-text"><span class="nd-label">${esc(x.name)}</span>${subOf(x) ? `<span class="nd-sub">${esc(subOf(x))}</span>` : ""}</span></button>`).join("");
   const ring = arcs.length ? `<svg class="hub-ring" viewBox="0 0 200 200" aria-hidden="true">${arcs.map((a, i) => `<path class="ring-${i % 2 ? "b" : "a"}" d="${ringArc(a)}"></path>`).join("")}</svg>` : "";
   const wires = `<svg class="wires" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><path d="${pts.map((p) => `M50 50L${p.x} ${p.y}`).join("")}"></path></svg>`;
   const hubEl = `<button type="button" class="hub lv-${hub.level}" data-hub ${trail.length > 1 ? `aria-label="${esc(`${hub.name}. Back to ${trail.at(-2).name}`)}"` : "disabled"}>
-      <span class="hub-title">${esc(hub.name)}</span><span class="hub-line">${esc(LEVEL_WORD[hub.level])}</span>${below ? `<span class="hub-line">${plural(children.length, below === "process" ? "process" : below, PLURAL[below])}</span>` : ""}</button>`;
+      <span class="hub-title">${esc(hub.name)}</span><span class="hub-line">${esc(LEVEL_WORD[hub.level])}</span>${below ? `<span class="hub-line">${plural(children.length, below === "process" ? "process" : below, PLURAL[below])}</span>` : ""}${onItem(hub.id).length ? `<span class="hub-line">${plural(onItem(hub.id).length, "assessment")}</span>` : ""}</button>`;
   main().innerHTML = page("Organisation", `
     <ol class="map-crumbs" aria-label="Where you are">${trail.map((x, i) => `<li><button type="button" data-crumb="${i}" ${i === trail.length - 1 ? 'aria-current="page"' : ""}>${esc(x.name)}</button></li>`).join("")}</ol>
     <div class="map-split">
@@ -4459,7 +4546,7 @@ function drawMap() {
       </div>
       <aside class="map-panel" id="map-panel">${mapPanel(sel, shareIn, sel.id === hub.id ? children : [])}</aside>
     </div>`,
-    "Your organisation's services, their functions and, where useful, processes, each with its weighting and a sheet of facts. Assessments will attach here, and their scores roll up.");
+    "Your organisation's services, their functions and, where useful, processes, each with its weighting, a sheet of facts and its assessments. Click a circle to open it.");
   main().firstElementChild.classList.add("map-page");
   $$("[data-node]").forEach((b) => b.addEventListener("click", () => {
     const it = byId.get(Number(b.dataset.node));
@@ -4489,6 +4576,8 @@ function mapPanel(it, shareIn, children) {
   };
   return `<h2>${esc(it.name)}</h2>
     <p class="small muted" style="margin-top:-0.4rem">${esc(LEVEL_WORD[it.level])}${it.std_key && it.std_key !== "org" ? " · standard, so it can be compared with other authorities" : ""}${parent ? ` · ${pct(shareIn(it))} of ${esc(parent.name)}` : ""}</p>
+    ${mapAssessments(it)}
+    <h3 class="h3" style="margin-top:1.25rem">Details</h3>
     <form class="form" id="map-item" novalidate>
       <div class="field"><label for="mi-name">Name</label><div class="row"><input id="mi-name" type="text" maxlength="80" value="${esc(it.name)}"><button class="btn small secondary" type="submit">Rename</button></div></div>
       ${parent ? `<div class="field"><label for="mi-weight">Weighting</label><p class="hint">Its share among ${esc(owner(parent.name))} ${esc(PLURAL[it.level])} comes from this.</p>
@@ -4510,7 +4599,36 @@ function mapPanel(it, shareIn, children) {
         <button class="btn small" type="submit">Add the fact</button></form>
       <p class="small muted">It's added to every item on ${esc(A.org.authority)}'s map, and only your colleagues see it.</p></details>`;
 }
+// the item's assessments: open one, take it off, start one here, or put one you have here
+function mapAssessments(it) {
+  const items = A.org.items, list = A.mapAs || [], tpls = A.templates || [];
+  const here = list.filter((a) => a.org_item_id === it.id);
+  const where = (a) => items.find((x) => x.id === a.org_item_id)?.name;
+  const others = list.filter((a) => a.org_item_id !== it.id && assessmentFits(a, it, items, tpls)).sort((a, z) => (a.org_item_id ? 1 : 0) - (z.org_item_id ? 1 : 0) || a.name.localeCompare(z.name));
+  const canStart = tpls.some((t) => t.visible !== false && templateFits(t, it, items));
+  const scope = it.level === "organisation" ? "" : ` for ${itemService(items, it)}`;
+  return `<section class="map-assess" aria-labelledby="ma-h"><h3 class="h3" id="ma-h">Assessments</h3>
+    ${here.length ? `<ul class="ma-list">${here.map((a) => `<li><a class="title" href="${href(`/a/${a.id}/scorecard`)}" data-nav>${esc(a.name)}</a>
+        <span class="small muted">${esc([a.profile_type, a.reporting_year].filter(Boolean).join(" · ") || "No type set")} · score <b>${f1(a.score)}</b> · ${Math.round((a.completeness || 0) * 100)}% complete</span>
+        <button class="link-btn small" type="button" data-unplace="${a.id}">Take it off the map</button></li>`).join("")}</ul>`
+      : `<p class="small muted">None on ${esc(it.name)} yet.</p>`}
+    <div class="row">${canStart ? `<a class="btn small" href="${href(`/new?item=${it.id}`)}" data-nav>${ICON.plus} Start an assessment here</a>` : ""}</div>
+    ${canStart ? "" : `<p class="small muted">No template is set for ${esc(it.level)} level${esc(scope)} yet. A template's levels are set in the <a href="${href("/templates")}" data-nav>template editor</a>.</p>`}
+    ${others.length ? `<form class="row ma-place" id="ma-place" novalidate><label class="visually-hidden" for="ma-pick">An assessment you already have, to put on ${esc(it.name)}</label>
+      <select id="ma-pick"><option value="">Put one you have here…</option>${others.map((a) => `<option value="${a.id}">${esc(a.name)}${a.org_item_id ? ` (now on ${esc(where(a) || "the map")})` : ""}</option>`).join("")}</select>
+      <button class="btn small secondary" type="submit">Put it here</button></form>` : ""}
+  </section>`;
+}
 function bindMapPanel(it) {
+  $$("[data-unplace]").forEach((b) => b.addEventListener("click", async () => {
+    try { await api("/api/assessments/attach", { id: Number(b.dataset.unplace), itemId: 0 }); if (A.ws?.id === Number(b.dataset.unplace)) A.ws.meta.place = null; await reloadMap("Taken off the map. The assessment is still in your list."); } catch (err) { fail(err); }
+  }));
+  $("#ma-place")?.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const id = Number($("#ma-pick").value);
+    if (!id) return;
+    try { await api("/api/assessments/attach", { id, itemId: it.id }); if (A.ws?.id === id) A.ws.meta.place = { id: it.id, name: it.name, level: it.level }; await reloadMap(`Put on ${it.name}.`); } catch (err) { fail(err); }
+  });
   $("#map-item").addEventListener("submit", async (e) => {
     e.preventDefault();
     const name = $("#mi-name").value.trim();
@@ -4525,7 +4643,10 @@ function bindMapPanel(it) {
   }));
   $$("[data-move]").forEach((b) => b.addEventListener("click", async () => { try { await api("/api/org/item", { action: "move", id: it.id, dir: Number(b.dataset.move) }); await reloadMap(); } catch (err) { fail(err); } }));
   $("#mi-remove")?.addEventListener("click", async () => {
-    if (!(await confirmBox(`Remove ${it.name}?`, `"${esc(it.name)}" will be taken off the map, with its property sheet.`, "Remove", true))) return;
+    const gone = new Set([it.id]);
+    for (let grew = true; grew; ) { grew = false; for (const x of A.org.items) if (!gone.has(x.id) && gone.has(x.parent_id)) { gone.add(x.id); grew = true; } }
+    const kept = (A.mapAs || []).filter((a) => gone.has(a.org_item_id)).length;
+    if (!(await confirmBox(`Remove ${it.name}?`, `"${esc(it.name)}" will be taken off the map, with its property sheet.${kept ? ` ${kept === 1 ? "The assessment on it stays in your list" : `The ${kept} assessments on it stay in your list`}, off the map.` : ""}`, "Remove", true))) return;
     try { await api("/api/org/item", { action: "remove", id: it.id }); }
     catch (err) {
       if (err.status !== 409) { fail(err); return; }

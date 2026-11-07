@@ -124,6 +124,9 @@ export const MIGRATIONS = [
   "ALTER TABLE va_templates ADD COLUMN service TEXT",
   "ALTER TABLE va_assessments ADD COLUMN service TEXT",
   "ALTER TABLE va_benchmarks ADD COLUMN service TEXT",
+  // the item on the organisation map an assessment is for (none until it's put there)
+  "ALTER TABLE va_assessments ADD COLUMN org_item_id INTEGER",
+  "CREATE INDEX IF NOT EXISTS va_assessments_item ON va_assessments (org_item_id)",
 ];
 
 let schemaReady: Promise<void> | null = null;
