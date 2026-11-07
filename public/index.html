@@ -513,6 +513,8 @@ body:has(.sum-strip) .toasts { bottom: 5.5rem; }
 .seg button:last-child { border-right: 0; }
 .seg button[aria-pressed="true"] { background: var(--navy); color: var(--white); }
 .seg button:hover:not([aria-pressed="true"]) { background: var(--paper); }
+.tpl-filter { margin: 0 0 1.25rem; gap: 0.75rem; align-items: center; }
+.tpl-filter select { width: auto; max-width: 100%; }
 .dim { border: 1px solid var(--haze); border-radius: var(--radius); margin-bottom: 1rem; background: var(--white); overflow: clip; }
 .dim-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 0.75rem 1rem; align-items: center; padding: 0.75rem 1rem; background: var(--paper); border-bottom: 1px solid var(--haze); position: sticky; top: 0; z-index: 3; }
 .dim-head h2 { margin: 0; font-size: 1.12rem; display: flex; align-items: center; gap: 0.55rem; }
@@ -3277,12 +3279,46 @@ async function pageNew(q) {
     <h3>${esc(t.name)}</h3>${t.description ? `<p>${esc(t.description)}</p>` : ""}<p class="small"><strong>${esc(svcName(t))}</strong>${t.std_function ? ` · for ${esc(VA.STD_FUNCTIONS.find(([k]) => k === t.std_function)?.[1] || "")}` : ""} · ${esc(levelsText(t.levels))} level · ${plural(t.dimensions || 0, "dimension")} · ${plural(t.factors || 0, "row")}</p>
     <div class="row"><a class="btn small" href="${href(`/new?template=${t.id}${item ? `&item=${item.id}` : ""}`)}" data-nav>Use this template</a><a class="btn small quiet" href="${href(`/templates/${t.id}`)}" data-nav>Look inside</a></div></article>`;
   const forItem = item ? `<div class="notice info"><p>For <strong>${esc(item.name)}</strong> on your map${item.level === "organisation" ? "" : `, a ${esc(item.level)} in ${esc(itemService(A.org.items, item))}`}. Only the templates that fit it are shown. <a href="${href("/new")}" data-nav>Show every template</a></p></div>` : "";
-  main().innerHTML = page("New assessment", `${forItem}
-    <h2 class="h3">FHRG templates</h2><div class="cards">${fh.map(card).join("") || `<div class="empty">${item ? `None of the FHRG's templates fit ${esc(item.name)}.` : "No FHRG templates yet."}</div>`}</div>
+  // off the map, the list can be narrowed by level and, at function or process level, by standard function (kept in the address, so it survives going back)
+  const filter = { level: VA.LEVELS.some(([k]) => k === q?.get("level")) ? q.get("level") : "", fn: VA.STD_FUNCTIONS.some(([k]) => k === q?.get("function")) ? q.get("function") : "" };
+  const fnShown = () => !item && filter.level !== "organisation" && filter.level !== "service";
+  const passes = (t) => (!filter.level || atLevel(t.levels, filter.level))
+    && (!fnShown() || !filter.fn || t.std_function === filter.fn);
+  const fnOptions = () => VA.STD_FUNCTIONS.filter(([k]) => [...fh, ...own].some((t) => t.std_function === k && (!filter.level || atLevel(t.levels, filter.level))));
+  const filterBar = () => item ? "" : `<div class="row tpl-filter" id="new-filter">
+    <div class="seg" role="group" aria-label="Level">${[["", "All levels"], ...VA.LEVELS].map(([k, l]) => `<button type="button" data-level="${k}" aria-pressed="${filter.level === k}">${l}</button>`).join("")}</div>
+    ${fnShown() ? `<label class="small" for="new-fn">Function</label><select id="new-fn" aria-label="Function"><option value="">Any function</option>${fnOptions().map(([k, l]) => `<option value="${k}" ${filter.fn === k ? "selected" : ""}>${esc(l)}</option>`).join("")}</select>` : ""}</div>`;
+  const none = (fhrg) => {
+    if (item) return fhrg ? `None of the FHRG's templates fit ${esc(item.name)}.` : "";
+    if (filter.level || (fnShown() && filter.fn)) {
+      const what = fnShown() && filter.fn ? `for ${esc(VA.STD_FUNCTIONS.find(([k]) => k === filter.fn)[1])}` : "";
+      return `${fhrg ? "No FHRG templates" : "None of your authority's templates"} ${what ? `${what} ` : ""}${filter.level ? `at ${esc(filter.level)} level` : ""}.`.replace(/\s+\./, ".");
+    }
+    return fhrg ? "No FHRG templates yet." : "";
+  };
+  const lists = () => {
+    const a = fh.filter(passes), b = own.filter(passes);
+    return `<h2 class="h3">FHRG templates</h2><div class="cards">${a.map(card).join("") || `<div class="empty">${none(true)}</div>`}</div>
     <h2 class="h3" style="margin-top:2rem">Your authority's templates</h2>
-    <div class="cards">${own.map(card).join("")}<article class="tcard" style="border-style:dashed"><h3>Make your own</h3><p>Start from a blank scorecard or a copy of any template, then set your own dimensions, factors and weightings.</p><div class="row"><a class="btn small secondary" href="${href("/templates/new")}" data-nav>Open the template editor</a></div></article></div>
+    <div class="cards">${b.map(card).join("")}${!b.length && own.length ? `<div class="empty">${none(false)}</div>` : ""}<article class="tcard" style="border-style:dashed"><h3>Make your own</h3><p>Start from a blank scorecard or a copy of any template, then set your own dimensions, factors and weightings.</p><div class="row"><a class="btn small secondary" href="${href("/templates/new")}" data-nav>Open the template editor</a></div></article></div>`;
+  };
+  main().innerHTML = page("New assessment", `${forItem}${filterBar()}<div id="new-tpls">${lists()}</div>
     <p style="margin-top:2rem"><a href="${href("/open")}" data-nav>Or open a .va2 file saved by the Excel tool</a></p>`,
   "Choose the scorecard to assess against. You can change the weightings for this assessment as you go.");
+  if (item) return;
+  const redraw = () => {
+    if (!fnShown() || !fnOptions().some(([k]) => k === filter.fn)) filter.fn = "";
+    const qs = new URLSearchParams(); if (filter.level) qs.set("level", filter.level); if (filter.fn) qs.set("function", filter.fn);
+    history.replaceState({}, "", href(`/new${qs.toString() ? `?${qs}` : ""}`));
+    $("#new-filter").outerHTML = filterBar();
+    $("#new-tpls").innerHTML = lists();
+    wire();
+  };
+  const wire = () => {
+    $$("#new-filter [data-level]").forEach((b) => b.addEventListener("click", () => { filter.level = b.dataset.level; redraw(); }));
+    $("#new-fn")?.addEventListener("change", (e) => { filter.fn = e.target.value; redraw(); });
+  };
+  wire();
 }
 async function newForm(t, item = null) {
   setTitle("New assessment");
