@@ -963,6 +963,46 @@ await test("removing an item keeps its assessments, and says so first", async ()
   const kept = (await demoCall("/api/assessments/list")).assessments.find((a) => a.name === "Pothole pilot case");
   assert.ok(kept); assert.equal(kept.org_item_id, null);
 });
+await test("a copy saved as a new assessment stays on the same item, and the open one follows changes on the map", async () => {
+  await openMap();
+  nodeNamed("Highways").click();
+  await wait(() => hubName() === "Highways", "Highways");
+  nodeNamed("Carriageways").click();
+  await wait(() => hubName() === "Carriageways" && panelLinks().length === 1, "Carriageways' business case");
+  w.document.querySelector("#map-panel .ma-list a.title").click();
+  await wait(() => /Resurfacing programme business case/.test(w.document.querySelector("#ws-title")?.textContent || ""), "the assessment");
+  w.document.querySelector('[data-act="saveas"]').click();
+  await wait(() => w.document.querySelector("dialog[open] #dlg-text"), "the name");
+  w.document.querySelector("dialog[open] #dlg-text").value = "Resurfacing programme option B";
+  w.document.querySelector("dialog[open] button[value=ok]").click();
+  await wait(() => /option B/.test(w.document.querySelector("#ws-title")?.textContent || ""), "the copy");
+  assert.ok([...w.document.querySelectorAll(".ws-head .meta a")].some((a) => a.textContent === "Carriageways"), "the copy says it's on Carriageways");
+  const copy = (await demoCall("/api/assessments/list")).assessments.find((a) => a.name === "Resurfacing programme option B");
+  const cw = (await demoCall("/api/org/get")).items.find((x) => x.name === "Carriageways");
+  assert.equal(copy.org_item_id, cw.id, "and it is");
+  // renamed on the map: the open assessment shows the new name
+  [...w.document.querySelectorAll(".ws-head .meta a")].find((a) => a.textContent === "Carriageways").click();
+  await wait(() => hubName() === "Carriageways" && w.document.querySelector("#mi-name"), "the map");
+  assert.equal(panelLinks().length, 2);
+  // only what fits a function is offered to put here: not the service-level value for money assessments
+  const offer = [...(w.document.querySelector("#ma-pick")?.options || [])].map((o) => o.textContent);
+  assert.ok(offer.some((x) => /Drainage culvert renewal case/.test(x)), offer.join(" / "));
+  assert.ok(!offer.some((x) => /Value for Money|Carbon|Depot/.test(x)), offer.join(" / "));
+  w.document.querySelector("#mi-name").value = "Carriageways <b>and</b> roads";
+  w.document.querySelector("#map-item").dispatchEvent(new w.Event("submit", { bubbles: true, cancelable: true }));
+  await wait(() => hubName() === "Carriageways <b>and</b> roads", "the new name");
+  assert.equal(w.document.querySelector("#map-panel b b, #map-panel h2 b"), null, "a name is shown as text");
+  acceptLeave();
+  w.location.hash = `/a/${copy.id}/scorecard`;
+  await wait(() => [...w.document.querySelectorAll(".ws-head .meta a")].some((a) => a.textContent === "Carriageways <b>and</b> roads"), "the new name on the assessment");
+  // the new-assessment page names it as text too
+  acceptLeave();
+  w.location.hash = `/new?item=${cw.id}`;
+  await wait(() => /For Carriageways <b>and<\/b> roads on your map/.test(w.document.querySelector("main").textContent), "the new-assessment page");
+  assert.equal(w.document.querySelector("main .notice b"), null);
+  // put the name back
+  await demoCall("/api/org/item", { action: "rename", id: cw.id, name: "Carriageways" });
+});
 await test("a page someone has left doesn't paint its error over the next one", async () => {
   acceptLeave();
   w.location.hash = "/a/999999";

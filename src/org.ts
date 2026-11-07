@@ -224,11 +224,12 @@ export async function handleOrgFactAdd(c: Config, request: Request): Promise<Res
 // only within its own service: a Waste assessment doesn't go on a Highways function.
 export async function placeFor(c: Config, a: Row, itemId: unknown): Promise<Row> {
   const it = await itemFor(c, a.authority_id, itemId);
-  const tpl = a.template_id ? (await q(c, "SELECT levels FROM va_templates WHERE id = ?", a.template_id))[0] : null;
+  const tpl = a.template_id ? (await q(c, "SELECT levels, scope_id FROM va_templates WHERE id = ?", a.template_id))[0] : null;
   const levels = tpl ? cleanLevels(tpl.levels).split(",") : null;
   const word = (l: string) => (l === "organisation" ? "the organisation" : `a ${l}`);
   if (levels && !levels.includes(it.level)) {
-    throw new FriendlyError(`${a.name} is from a template for ${levels.join(", ")} level, so it can't go on ${word(it.level)}. A template's levels are set in the template editor.`, 400, "itemId");
+    const how = tpl!.scope_id === 0 ? "The FHRG team sets the levels of its templates." : "A template's levels are set in the template editor.";
+    throw new FriendlyError(`${a.name} is from a template for ${levels.join(", ")} level, so it can't go on ${word(it.level)}. ${how}`, 400, "itemId");
   }
   if (it.level !== "organisation") {
     const all = await q(c, "SELECT id, parent_id, level, service FROM va_org_items WHERE authority_id = ?", a.authority_id);
@@ -248,7 +249,9 @@ export async function handleAttach(c: Config, request: Request): Promise<Respons
   if (!a || (a.authority_id !== me.authorityId && !me.siteAdmin)) throw new FriendlyError("That assessment wasn't found. It may have been deleted.", 404);
   const it = Number(b.itemId) ? await placeFor(c, a, b.itemId) : null;
   await exec(c, [
-    { sql: "UPDATE va_assessments SET org_item_id = ? WHERE id = ?", args: [it ? it.id : null, a.id] },
+    // written only while the item is still on the authority's map
+    it ? { sql: "UPDATE va_assessments SET org_item_id = ? WHERE id = ? AND EXISTS (SELECT 1 FROM va_org_items WHERE id = ? AND authority_id = ?)", args: [it.id, a.id, it.id, a.authority_id] }
+      : { sql: "UPDATE va_assessments SET org_item_id = NULL WHERE id = ?", args: [a.id] },
     audit(me.email, it ? "va-place-assessment" : "va-unplace-assessment", { id: a.id, name: a.name, item: it ? it.name : null }),
   ]);
   return json({ ok: true, itemId: it ? it.id : null });

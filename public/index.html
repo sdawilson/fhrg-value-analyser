@@ -1910,7 +1910,7 @@ const Demo = (() => {
     const it = orgItem(a.authority_id, itemId);
     const tpl = a.template_id ? S.templates.find((x) => x.id === a.template_id) : null;
     const levels = tpl ? VA.levelsOf(tpl.levels).map(([k]) => k) : null;
-    if (levels && !levels.includes(it.level)) fail(`${a.name} is from a template for ${levels.join(", ")} level, so it can't go on ${it.level === "organisation" ? "the organisation" : `a ${it.level}`}. A template's levels are set in the template editor.`, 400, { field: "itemId" });
+    if (levels && !levels.includes(it.level)) fail(`${a.name} is from a template for ${levels.join(", ")} level, so it can't go on ${it.level === "organisation" ? "the organisation" : `a ${it.level}`}. ${tpl.scope_id === 0 ? "The FHRG team sets the levels of its templates." : "A template's levels are set in the template editor."}`, 400, { field: "itemId" });
     if (it.level !== "organisation") {
       let up = it;
       while (up && up.level !== "service") up = S.orgItems.find((x) => x.id === up.parent_id);
@@ -2073,7 +2073,10 @@ const Demo = (() => {
   }
 
   const fail = (message, status = 400, extra = {}) => { const e = new Error(message); e.status = status; Object.assign(e, extra); throw e; };
-  const pubA = (a, withSummary) => { const { va2, summary, ...rest } = a; return { ...rest, org_item_id: a.org_item_id ?? null, ...(withSummary ? { summary: clone(summary) } : {}) }; };
+  const pubA = (a, withSummary) => {
+    const { va2, summary, ...rest } = a, t = a.template_id ? S.templates.find((x) => x.id === a.template_id) : null;
+    return { ...rest, org_item_id: a.org_item_id ?? null, template_levels: t ? t.levels || "service" : null, ...(withSummary ? { summary: clone(summary) } : {}) };
+  };
   const pubT = (t) => { const { vt2, _doc, ...rest } = t; return { ...rest, fhrg: t.scope_id === 0, service: svcOf(t), visible: t.visible !== false }; };
   const mine = (a) => a.authority_id === S.me.authorityId || S.me.siteAdmin;
   const findA = (id) => { const a = S.assessments.find((x) => x.id === Number(id)); if (!a || !mine(a)) fail("That assessment wasn't found. It may have been deleted.", 404); return a; };
@@ -2247,7 +2250,11 @@ const Demo = (() => {
         if (clash) fail("Your authority already has an assessment with that name. Choose another, or open that one.", 409, { field: "name", clashId: clash.id });
         const doc = VA.parse(b.va2, "x.va2").doc;
         const t = Number(b.templateId) ? S.templates.find((x) => x.id === Number(b.templateId)) : null;
-        const place = !a && Number(b.orgItemId) ? placeFor({ authority_id: aid, name, template_id: t ? t.id : null, service: svcOf(doc) }, b.orgItemId) : null;
+        let place = null;
+        if (!a && Number(b.orgItemId)) {
+          try { place = placeFor({ authority_id: aid, name, template_id: t ? t.id : null, service: svcOf(doc) }, b.orgItemId); }
+          catch (e) { if (b.placeIfFits !== true) throw e; }
+        }
         if (a) {
           S.versions.unshift({ id: S.nextId++, assessment_id: a.id, version: a.version, bytes: a.va2.length, saved: a.updated, saved_by: a.updated_by, reason: b.reason || null, va2: a.va2 });
           Object.assign(a, { name, version: a.version + 1, updated: nowIso(0), updated_by: S.me.email, shared: b.shared !== false });
@@ -2260,7 +2267,7 @@ const Demo = (() => {
         store(a, doc, AUTHORITIES.find((x) => x.id === aid));
         a.va2 = b.va2;
         log(b.id ? "va-save-assessment" : b.imported ? "va-import-assessment" : "va-new-assessment", { name });
-        return { saved: true, id: a.id, version: a.version, updated: a.updated, updated_by: a.updated_by };
+        return { saved: true, id: a.id, version: a.version, updated: a.updated, updated_by: a.updated_by, ...(b.id ? {} : { orgItemId: a.org_item_id }) };
       }
       case "/api/assessments/delete": {
         const a = findA(b.id);
@@ -3005,7 +3012,9 @@ async function go(path, replace = false) {
   await route();
   window.scrollTo(0, 0);
 }
+let navSeq = 0;
 async function route() {
+  const seq = ++navSeq;
   const { path, query } = location2();
   currentPath = path;
   closeMenus();
@@ -3023,7 +3032,7 @@ async function route() {
       catch (e) {
         console.error(e);
         // a page someone has already left doesn't paint over the one they went to
-        if (currentPath !== path) return;
+        if (seq !== navSeq) return;
         main().innerHTML = page("Something went wrong", `<div class="notice error"><p>${esc(e.message || e)}</p></div><p><a href="${href("/")}" data-nav>Back to your assessments</a></p>`);
       }
       return;
@@ -3274,13 +3283,13 @@ async function newForm(t, item = null) {
   });
 }
 // writes an assessment and saves it (new when id is 0)
-async function saveDoc({ id, doc, name, templateId = null, templateName = null, shared = true, baseVersion = 0, force = false, imported = false, bench = null, authorityId = 0, orgItemId = 0 }) {
+async function saveDoc({ id, doc, name, templateId = null, templateName = null, shared = true, baseVersion = 0, force = false, imported = false, bench = null, authorityId = 0, orgItemId = 0, placeIfFits = false }) {
   doc.profile.Profile_Name = name;
   const calc = VA.calculate(doc, bench);
   const text = VA.write(doc, { organisation: A.me.authority, user: A.me.email, calc, keepFileBench: !bench });
   const summary = VA.summarise(doc, bench ? VA.calculate(doc) : calc);
   return await api("/api/assessments/save", {
-    id, name, va2: text, summary, baseVersion, force, imported, shared, templateId, templateName, authorityId, orgItemId,
+    id, name, va2: text, summary, baseVersion, force, imported, shared, templateId, templateName, authorityId, orgItemId, placeIfFits,
     profileType: doc.profile.Profile_Type || "", reportingYear: doc.profile.Profile_Reporting_Year || "", authorityProfile: doc.profile.Profile_Authority_Type || "",
   });
 }
@@ -3496,8 +3505,11 @@ async function saveWs(asNew = false) {
 }
 async function doSave(name, asNew, force) {
   const ws = A.ws;
+  // a copy, such as another option, stays on the same item of the map where it fits
   const r = await saveDoc({ id: asNew ? 0 : ws.id, doc: ws.doc, name, templateId: ws.meta.template_id || null, templateName: ws.meta.template_name || null,
-    shared: ws.meta.shared !== false, baseVersion: ws.version, force, imported: !!ws.meta.imported && !ws.id, bench: ws.bench ? ws.bench.factors : null });
+    shared: ws.meta.shared !== false, baseVersion: ws.version, force, imported: !!ws.meta.imported && !ws.id, bench: ws.bench ? ws.bench.factors : null,
+    orgItemId: asNew && ws.meta.place ? ws.meta.place.id : 0, placeIfFits: true });
+  if (asNew) ws.meta.place = r.orgItemId && ws.meta.place && r.orgItemId === ws.meta.place.id ? ws.meta.place : null;
   const was = ws.id;
   Object.assign(ws, { id: r.id, version: r.version, dirty: false });
   Object.assign(ws.meta, { name, updated: r.updated, updated_by: r.updated_by, imported: false });
@@ -4476,9 +4488,9 @@ function itemService(items, it) {
 }
 const atLevel = (levels, level) => VA.levelsOf(levels).some(([k]) => k === level);
 const templateFits = (t, it, items) => atLevel(t.levels, it.level) && (it.level === "organisation" || sameService(svcName(t), itemService(items, it)));
-function assessmentFits(a, it, items, tpls) {
-  const t = a.template_id ? tpls.find((x) => x.id === a.template_id) : null;
-  return (!t || atLevel(t.levels, it.level)) && (it.level === "organisation" || sameService(a.service, itemService(items, it)));
+function assessmentFits(a, it, items) {
+  const levels = a.template_id ? a.template_levels : null;
+  return (!levels || atLevel(levels, it.level)) && (it.level === "organisation" || sameService(a.service, itemService(items, it)));
 }
 // the trail to an item: opened in the middle, or for a process, selected beside its function
 function showOnMap(itemId) {
@@ -4499,9 +4511,15 @@ async function pageMap(q) {
   drawMap();
 }
 async function loadMap() {
-  const [org, list] = await Promise.all([api("/api/org/get"), assessments(true), templates(), services()]);
+  const [org, list] = await Promise.all([api("/api/org/get"), api("/api/assessments/list"), templates(), services()]);
   A.org = org;
-  A.mapAs = list;
+  A.mapAs = list.assessments;
+  A.assessments = null;
+  // an open assessment shows where it is now, after anything changed on the map
+  if (A.ws && A.ws.id) {
+    const a = A.mapAs.find((x) => x.id === A.ws.id), it = a && A.org.items.find((x) => x.id === a.org_item_id);
+    A.ws.meta.place = it ? { id: it.id, name: it.name, level: it.level } : null;
+  }
 }
 async function reloadMap(msg) {
   try { await loadMap(); drawMap(); if (msg) toast(msg); } catch (e) { fail(e); }
@@ -4604,12 +4622,13 @@ function mapAssessments(it) {
   const items = A.org.items, list = A.mapAs || [], tpls = A.templates || [];
   const here = list.filter((a) => a.org_item_id === it.id);
   const where = (a) => items.find((x) => x.id === a.org_item_id)?.name;
-  const others = list.filter((a) => a.org_item_id !== it.id && assessmentFits(a, it, items, tpls)).sort((a, z) => (a.org_item_id ? 1 : 0) - (z.org_item_id ? 1 : 0) || a.name.localeCompare(z.name));
+  const others = list.filter((a) => a.org_item_id !== it.id && assessmentFits(a, it, items)).sort((a, z) => (a.org_item_id ? 1 : 0) - (z.org_item_id ? 1 : 0) || a.name.localeCompare(z.name));
   const canStart = tpls.some((t) => t.visible !== false && templateFits(t, it, items));
   const scope = it.level === "organisation" ? "" : ` for ${itemService(items, it)}`;
   return `<section class="map-assess" aria-labelledby="ma-h"><h3 class="h3" id="ma-h">Assessments</h3>
     ${here.length ? `<ul class="ma-list">${here.map((a) => `<li><a class="title" href="${href(`/a/${a.id}/scorecard`)}" data-nav>${esc(a.name)}</a>
         <span class="small muted">${esc([a.profile_type, a.reporting_year].filter(Boolean).join(" · ") || "No type set")} · score <b>${f1(a.score)}</b> · ${Math.round((a.completeness || 0) * 100)}% complete</span>
+        ${assessmentFits(a, it, items) ? "" : `<span class="chip warn" title="Its template's levels or its service have changed since it was put here.">Doesn't fit here any more</span>`}
         <button class="link-btn small" type="button" data-unplace="${a.id}">Take it off the map</button></li>`).join("")}</ul>`
       : `<p class="small muted">None on ${esc(it.name)} yet.</p>`}
     <div class="row">${canStart ? `<a class="btn small" href="${href(`/new?item=${it.id}`)}" data-nav>${ICON.plus} Start an assessment here</a>` : ""}</div>
@@ -4621,13 +4640,13 @@ function mapAssessments(it) {
 }
 function bindMapPanel(it) {
   $$("[data-unplace]").forEach((b) => b.addEventListener("click", async () => {
-    try { await api("/api/assessments/attach", { id: Number(b.dataset.unplace), itemId: 0 }); if (A.ws?.id === Number(b.dataset.unplace)) A.ws.meta.place = null; await reloadMap("Taken off the map. The assessment is still in your list."); } catch (err) { fail(err); }
+    try { await api("/api/assessments/attach", { id: Number(b.dataset.unplace), itemId: 0 }); await reloadMap("Taken off the map. The assessment is still in your list."); } catch (err) { fail(err); }
   }));
   $("#ma-place")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const id = Number($("#ma-pick").value);
     if (!id) return;
-    try { await api("/api/assessments/attach", { id, itemId: it.id }); if (A.ws?.id === id) A.ws.meta.place = { id: it.id, name: it.name, level: it.level }; await reloadMap(`Put on ${it.name}.`); } catch (err) { fail(err); }
+    try { await api("/api/assessments/attach", { id, itemId: it.id }); await reloadMap(`Put on ${it.name}.`); } catch (err) { fail(err); }
   });
   $("#map-item").addEventListener("submit", async (e) => {
     e.preventDefault();

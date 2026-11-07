@@ -664,6 +664,53 @@ await test("removing an item from the map keeps its assessments, off the map", a
   const kept = (await call("/api/assessments/list", {}, bob)).assessments.find((x) => x.id === a.id);
   assert.ok(kept, "the assessment stays"); assert.equal(kept.org_item_id, null);
 });
+await test("a placed assessment keeps its place when saved again, and says where it is when opened", async () => {
+  const m = await call("/api/org/get", {}, bob), cw = m.items.find((x) => x.std_key === "hw.carriageways");
+  const a = (await call("/api/assessments/list", {}, bob)).assessments.find((x) => x.name === "Carriageways VfM");
+  expectStatus(await call("/api/assessments/save", { id: a.id, baseVersion: a.version, name: "Carriageways VfM", va2: va2(), summary: summary(58) }, ann), 200);
+  assert.equal((await call("/api/assessments/list", {}, bob)).assessments.find((x) => x.id === a.id).org_item_id, cw.id);
+  const o = await call("/api/assessments/open", { id: a.id }, bob);
+  assert.deepEqual(o.assessment.place, { id: cw.id, name: "Carriageways", level: "function" });
+  // one with no template can be made on a function
+  const free = await call("/api/assessments/save", { name: "Carriageways notes", va2: va2(), orgItemId: cw.id, summary: summary(40) }, bob);
+  expectStatus(free, 200); assert.equal(free.orgItemId, cw.id);
+});
+await test("a copy stays on its item where it fits, and is saved off the map where it doesn't", async () => {
+  const m = await call("/api/org/get", {}, bob), cw = m.items.find((x) => x.std_key === "hw.carriageways"), hw = m.items.find((x) => x.std_key === "svc.highways");
+  const svcT = (await call("/api/templates/list", {}, bob)).templates.find((x) => x.name === "Service scorecard");
+  const fnT = (await call("/api/templates/list", {}, bob)).templates.find((x) => x.name === "Function scorecard");
+  const fits = await call("/api/assessments/save", { name: "Carriageways VfM option B", va2: va2(), templateId: fnT.id, orgItemId: cw.id, placeIfFits: true, summary: summary(50) }, bob);
+  expectStatus(fits, 200); assert.equal(fits.orgItemId, cw.id);
+  const off = await call("/api/assessments/save", { name: "Service copy", va2: va2(), templateId: svcT.id, orgItemId: cw.id, placeIfFits: true, summary: summary(50) }, bob);
+  expectStatus(off, 200); assert.equal(off.orgItemId, null, "saved, off the map");
+  const gone = await call("/api/assessments/save", { name: "Copy of a removed item", va2: va2(), templateId: svcT.id, orgItemId: 99999, placeIfFits: true, summary: summary(50) }, bob);
+  expectStatus(gone, 200); assert.equal(gone.orgItemId, null);
+  // without placeIfFits, an item it doesn't fit is refused, as when starting from the map
+  expectStatus(await call("/api/assessments/save", { name: "Refused copy", va2: va2(), templateId: svcT.id, orgItemId: cw.id, summary: summary(50) }, bob), 400);
+  expectStatus(await call("/api/assessments/save", { name: "On Highways", va2: va2(), templateId: svcT.id, orgItemId: hw.id, placeIfFits: true, summary: summary(50) }, bob), 200);
+});
+await test("the FHRG team brings in an assessment onto the authority's own map only", async () => {
+  const north = (await call("/api/org/get", {}, bob)).items.find((x) => x.std_key === "svc.highways");
+  const east = (await call("/api/org/get", {}, cat)).items.find((x) => x.std_key === "svc.highways");
+  const bad = await call("/api/assessments/save", { name: "Imported onto East", va2: va2(), authorityId: 1, imported: true, orgItemId: east.id, summary: summary(44) }, boss);
+  expectStatus(bad, 404);
+  assert.ok(!files("assessments/").some((k) => k.includes("Imported onto East")), "nothing written");
+  const good = await call("/api/assessments/save", { name: "Imported onto North", va2: va2(), authorityId: 1, imported: true, orgItemId: north.id, summary: summary(44) }, boss);
+  expectStatus(good, 200); assert.equal(good.orgItemId, north.id);
+});
+await test("an assessment from a hidden FHRG template keeps that template's levels", async () => {
+  const fhrgT = await call("/api/templates/save", { name: "FHRG service only", vt2: va2(), scope: "fhrg", levels: "service" }, boss);
+  expectStatus(fhrgT, 200);
+  const a = await call("/api/assessments/save", { name: "From the FHRG's", va2: va2(), templateId: fhrgT.id, summary: summary(50) }, bob);
+  expectStatus(await call("/api/templates/hide", { id: fhrgT.id }, boss), 200);
+  assert.ok(!(await call("/api/templates/list", {}, bob)).templates.some((x) => x.id === fhrgT.id), "hidden from the list");
+  const row = (await call("/api/assessments/list", {}, bob)).assessments.find((x) => x.id === a.id);
+  assert.equal(row.template_levels, "service", "but its levels still come with the assessment");
+  assert.equal((await call("/api/assessments/list", {}, bob)).assessments.find((x) => x.name === "Waste 2026").template_levels, null, "none without a template");
+  const cw = (await call("/api/org/get", {}, bob)).items.find((x) => x.std_key === "hw.carriageways");
+  const r = await call("/api/assessments/attach", { id: a.id, itemId: cw.id }, bob);
+  expectStatus(r, 400); assert.match(r.error, /The FHRG team sets the levels of its templates/);
+});
 await test("no file was stored outside the toolkit's folder", () => {
   assert.deepEqual([...store.keys()].filter((k) => !k.startsWith("value-analyser/")), []);
 });
