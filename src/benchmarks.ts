@@ -5,6 +5,7 @@
 import { requireMe, requireSiteAdmin } from "./accounts";
 import { assessmentFor, cleanSummary } from "./assessments";
 import { DEFAULT_SERVICE, cleanService, listedService, serviceKey } from "./services";
+import { functionKey } from "./org";
 import type { Config } from "./config";
 import type { Row, Val } from "./db";
 import { audit, exec, q } from "./db";
@@ -90,7 +91,9 @@ export async function handleBenchmarkGet(c: Config, request: Request): Promise<R
 
 // the latest shared assessment from each authority that matches
 // (always of the same service: an assessment that doesn't say is for Highways)
-export async function peerSummaries(c: Config, f: { profileType: string; service?: string; structure?: string; year?: string; authorityProfile?: string; excludeAuthority?: number; excludeId?: number }): Promise<Row[]> {
+// and of the same standard function: an assessment from a function's template only with that function's, one from any
+// other template (or none) only with those, so a service is never benchmarked against drainage
+export async function peerSummaries(c: Config, f: { profileType: string; service?: string; fn?: string | null; structure?: string; year?: string; authorityProfile?: string; excludeAuthority?: number; excludeId?: number }): Promise<Row[]> {
   const where = ["a.shared = 1", "a.summary IS NOT NULL", "a.profile_type = ?"];
   const args: Val[] = [f.profileType];
   if (f.structure) { where.push("a.structure = ?"); args.push(f.structure); }
@@ -99,9 +102,11 @@ export async function peerSummaries(c: Config, f: { profileType: string; service
   if (f.excludeAuthority) { where.push("a.authority_id <> ?"); args.push(f.excludeAuthority); }
   if (f.excludeId) { where.push("a.id <> ?"); args.push(f.excludeId); }
   const service = serviceKey(f.service);
-  const all = await q(c, `SELECT a.id, a.authority_id, a.name, a.updated, a.reporting_year, a.summary, a.service, au.name AS authority_name
+  const all = await q(c, `SELECT a.id, a.authority_id, a.name, a.updated, a.reporting_year, a.summary, a.service, au.name AS authority_name,
+      (SELECT t.std_function FROM va_templates t WHERE t.id = a.template_id) AS template_function
     FROM va_assessments a JOIN authorities au ON au.id = a.authority_id WHERE ${where.join(" AND ")} ORDER BY a.updated DESC LIMIT 2000`, ...args);
-  const rows = all.filter((r) => serviceKey(r.service) === service);
+  const fn = functionKey(f.fn) || "";
+  const rows = all.filter((r) => serviceKey(r.service) === service && (functionKey(r.template_function) || "") === fn);
   const latest = new Map<number, Row>();
   for (const r of rows) if (!latest.has(r.authority_id)) latest.set(r.authority_id, r);
   return [...latest.values()].map((r) => ({ ...r, summary: safeParse(r.summary) })).filter((r) => r.summary && r.summary.totals);
@@ -115,6 +120,7 @@ export async function handlePeers(c: Config, request: Request): Promise<Response
   const filters = {
     profileType: a.profile_type,
     service: cleanService(a.service),
+    fn: a.template_id ? (await q(c, "SELECT std_function FROM va_templates WHERE id = ?", a.template_id))[0]?.std_function ?? null : null,
     structure: b.sameTemplate === false ? "" : a.structure || "",
     year: b.sameYear ? a.reporting_year || "" : "",
     authorityProfile: b.sameProfile ? a.authority_profile || "" : "",

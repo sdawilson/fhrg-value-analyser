@@ -15,6 +15,13 @@ export const LEVEL_BELOW: Record<string, string> = { organisation: "service", se
 const MAX_ITEMS = 600, MAX_FACTS = 40;
 
 // The standard highways functions a new map starts with (Simon, 6 November 2026). Their keys never change.
+// a standard function's key as a file states it: one of the FHRG's, or none
+export const functionKey = (v: unknown): string | null => { const k = String(v ?? "").trim(); return STANDARD_FUNCTIONS.some(([key]) => key === k) ? k : null; };
+// the function a template is for counts only on a Highways template that can be used on functions or processes
+export function templateFunction(key: unknown, levels: string, service: string): string | null {
+  const fn = functionKey(key);
+  return fn && serviceKey(service) === serviceKey(DEFAULT_SERVICE) && /(^|,)(function|process)(,|$)/.test(levels) ? fn : null;
+}
 export const STANDARD_FUNCTIONS: [string, string][] = [
   ["hw.asset-management", "Asset management and strategy"], ["hw.carriageways", "Carriageways"], ["hw.footways", "Footways and cycleways"],
   ["hw.drainage", "Drainage"], ["hw.structures", "Structures"], ["hw.street-lighting", "Street lighting and illuminated signs"],
@@ -224,7 +231,7 @@ export async function handleOrgFactAdd(c: Config, request: Request): Promise<Res
 // only within its own service: a Waste assessment doesn't go on a Highways function.
 export async function placeFor(c: Config, a: Row, itemId: unknown): Promise<Row> {
   const it = await itemFor(c, a.authority_id, itemId);
-  const tpl = a.template_id ? (await q(c, "SELECT levels, scope_id FROM va_templates WHERE id = ?", a.template_id))[0] : null;
+  const tpl = a.template_id ? (await q(c, "SELECT levels, scope_id, std_function FROM va_templates WHERE id = ?", a.template_id))[0] : null;
   const levels = tpl ? cleanLevels(tpl.levels).split(",") : null;
   const word = (l: string) => (l === "organisation" ? "the organisation" : `a ${l}`);
   if (levels && !levels.includes(it.level)) {
@@ -232,11 +239,21 @@ export async function placeFor(c: Config, a: Row, itemId: unknown): Promise<Row>
     throw new FriendlyError(`${a.name} is from a template for ${levels.join(", ")} level, so it can't go on ${word(it.level)}. ${how}`, 400, "itemId");
   }
   if (it.level !== "organisation") {
-    const all = await q(c, "SELECT id, parent_id, level, service FROM va_org_items WHERE authority_id = ?", a.authority_id);
+    const all = await q(c, "SELECT id, parent_id, level, service, std_key FROM va_org_items WHERE authority_id = ?", a.authority_id);
     let up: Row | undefined = all.find((x) => x.id === it.id);
     while (up && up.level !== "service") up = all.find((x) => x.id === up!.parent_id);
     const service = up ? cleanService(up.service) : DEFAULT_SERVICE;
     if (serviceKey(service) !== serviceKey(a.service)) throw new FriendlyError(`${a.name} is for ${cleanService(a.service)}, and ${it.name} is part of ${service}.`, 400, "itemId");
+    // a template for one standard function: only that function and the processes within it (an authority's own
+    // functions can use any)
+    const fn = functionKey(tpl?.std_function);
+    if (fn && (it.level === "function" || it.level === "process")) {
+      let up: Row | undefined = all.find((x) => x.id === it.id);
+      while (up && up.level === "process") up = all.find((x) => x.id === up!.parent_id);
+      const own = up ? functionKey(up.std_key) : null;
+      const name = STANDARD_FUNCTIONS.find(([k]) => k === fn)![1];
+      if (own && own !== fn) throw new FriendlyError(`${a.name} is from a template for ${name}, so it goes on that function or a process within it.`, 400, "itemId");
+    }
   }
   return it;
 }

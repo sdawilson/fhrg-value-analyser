@@ -711,6 +711,73 @@ await test("an assessment from a hidden FHRG template keeps that template's leve
   const r = await call("/api/assessments/attach", { id: a.id, itemId: cw.id }, bob);
   expectStatus(r, 400); assert.match(r.error, /The FHRG team sets the levels of its templates/);
 });
+await test("a template for one standard function goes only on that function and the processes within it", async () => {
+  const forFn = (key) => `${va2()}Begin Template Settings\r\n   Template Function:= ${key}\r\nEnd Section\r\n`;
+  const cwT = await call("/api/templates/save", { name: "Carriageways only", vt2: forFn("hw.carriageways"), levels: "function,process" }, bob);
+  expectStatus(cwT, 200);
+  assert.equal((await call("/api/templates/list", {}, bob)).templates.find((x) => x.id === cwT.id).std_function, "hw.carriageways");
+  const odd = await call("/api/templates/save", { name: "Made-up function", vt2: forFn("hw.not-a-function"), levels: "function" }, bob);
+  assert.equal((await call("/api/templates/list", {}, bob)).templates.find((x) => x.id === odd.id).std_function, null, "only the FHRG's keys count");
+  let m = await call("/api/org/get", {}, bob);
+  const cw = m.items.find((x) => x.std_key === "hw.carriageways"), dr = m.items.find((x) => x.std_key === "hw.drainage"), hw = m.items.find((x) => x.std_key === "svc.highways");
+  const proc = await call("/api/org/item", { action: "add", parentId: cw.id, name: "Surface dressing" }, bob);
+  const own = await call("/api/org/item", { action: "add", parentId: hw.id, name: "Fleet and depots" }, bob);
+  const save = (name, orgItemId) => call("/api/assessments/save", { name, va2: va2(), templateId: cwT.id, orgItemId, summary: summary(50) }, bob);
+  expectStatus(await save("On carriageways", cw.id), 200);
+  expectStatus(await save("On surface dressing", proc.id), 200, "a process within it");
+  expectStatus(await save("On an own function", own.id), 200, "a function the authority added can use any");
+  const r = await save("On drainage", dr.id);
+  expectStatus(r, 400); assert.match(r.error, /from a template for Carriageways, so it goes on that function or a process within it/);
+  const listed = (await call("/api/assessments/list", {}, bob)).assessments.find((a) => a.name === "On carriageways");
+  assert.equal(listed.template_function, "hw.carriageways");
+  expectStatus(await call("/api/assessments/attach", { id: listed.id, itemId: dr.id }, bob), 400);
+});
+await test("a function's assessments are benchmarked only with the same function's, and never in the service's", async () => {
+  const settings = (lines) => `Begin Template Settings\r\n${lines.map((l) => `   ${l}\r\n`).join("")}End Section\r\n`;
+  const fnT = await call("/api/templates/save", { name: "Drainage scorecard", vt2: text + settings(["Template Levels:= function,process", "Template Function:= hw.drainage"]), levels: "function,process", scope: "fhrg" }, boss);
+  expectStatus(fnT, 200);
+  const before = await call("/api/benchmarks/peers", { assessmentId: aid }, bob);
+  const made = [];
+  for (const [n, who] of [["West drainage", dee], ["South drainage", eve], ["East drainage", cat]]) {
+    const r = await call("/api/assessments/save", { name: n, va2: text, templateId: fnT.id, summary: summary(97) }, who);
+    expectStatus(r, 200); made.push([r.id, who]);
+  }
+  // the newest from each authority is now a drainage one, but the service's comparison doesn't take it
+  const service = await call("/api/benchmarks/peers", { assessmentId: aid }, bob);
+  assert.equal(service.count, before.count); assert.equal(service.benchmark.totals.score, before.benchmark.totals.score);
+  const mine = await call("/api/assessments/save", { name: "North drainage", va2: text, templateId: fnT.id, summary: summary(70) }, bob);
+  made.push([mine.id, bob]);
+  const drainage = await call("/api/benchmarks/peers", { assessmentId: mine.id }, bob);
+  assert.equal(drainage.ok, true); assert.equal(drainage.count, 3); assert.equal(drainage.benchmark.totals.score, 97);
+  const b = await call("/api/admin/benchmark-build", { profile_type: "Value for Money (Highways)" }, boss);
+  expectStatus(b, 200);
+  assert.ok((await call("/api/benchmarks/get", { id: b.id }, bob)).benchmark.summary.totals.score < 97, "a service composite leaves function assessments out");
+  expectStatus(await call("/api/admin/benchmark-delete", { id: b.id }, boss), 200);
+  for (const [id, who] of made) expectStatus(await call("/api/assessments/delete", { id }, who), 200);
+});
+await test("a template's function counts only on a Highways template for functions or processes, wherever it comes from", async () => {
+  const settings = (lines) => `Begin Template Settings\r\n${lines.map((l) => `   ${l}\r\n`).join("")}End Section\r\n`;
+  const list = async () => (await call("/api/templates/list", {}, bob)).templates;
+  const svcOnly = await call("/api/templates/save", { name: "Service-level drainage", vt2: va2() + settings(["Template Function:= hw.drainage"]), levels: "service" }, bob);
+  const waste = await call("/api/templates/save", { name: "Waste drainage", vt2: va2() + settings(["Template Service:= Waste", "Template Function:= hw.drainage"]), levels: "function" }, bob);
+  assert.equal((await list()).find((x) => x.id === svcOnly.id).std_function, null, "not at service level only");
+  assert.equal((await list()).find((x) => x.id === waste.id).std_function, null, "not for another service");
+  // a file put in the FHRG's folder brings its function with it
+  putFile("templates/fhrg/Structures scorecard.vt2", va2([[101, "Economy", "Inspection costs"]]) + settings(["Template Levels:= function,process", "Template Function:= hw.structures"]));
+  const reg = (await call("/api/admin/templates", {}, boss)).templates.find((x) => x.name === "Structures scorecard");
+  assert.equal(reg.std_function, "hw.structures"); assert.equal(reg.levels, "function,process");
+  // made the FHRG's from an authority's: it keeps its function
+  const own = (await list()).find((x) => x.name === "Carriageways only");
+  const p = await call("/api/admin/template-action", { id: own.id, action: "promote", name: "Carriageways for everyone" }, boss);
+  expectStatus(p, 200);
+  assert.equal((await call("/api/templates/list", {}, cat)).templates.find((x) => x.name === "Carriageways for everyone").std_function, "hw.carriageways");
+  // an assessment whose function template has gone can go on any function
+  const tmp = await call("/api/templates/save", { name: "Short-lived drainage", vt2: va2() + settings(["Template Function:= hw.drainage"]), levels: "function,process" }, bob);
+  const a = await call("/api/assessments/save", { name: "Left behind", va2: va2(), templateId: tmp.id, summary: summary(50) }, bob);
+  expectStatus(await call("/api/templates/delete", { id: tmp.id }, bob), 200);
+  const cw = (await call("/api/org/get", {}, bob)).items.find((x) => x.std_key === "hw.carriageways");
+  expectStatus(await call("/api/assessments/attach", { id: a.id, itemId: cw.id }, bob), 200);
+});
 await test("no file was stored outside the toolkit's folder", () => {
   assert.deepEqual([...store.keys()].filter((k) => !k.startsWith("value-analyser/")), []);
 });
