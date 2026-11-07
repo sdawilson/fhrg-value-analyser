@@ -683,7 +683,7 @@ const openMap = async () => {
 };
 await test("the map has the organisation in the middle and its services around it, with their shares", async () => {
   await openMap();
-  assert.ok(w.document.querySelector('.nav a[data-path="/map"]'), "it's in the navigation");
+  assert.equal(w.document.querySelector('.nav a[data-path="/"]').textContent, "Organisation", "it's the home page");
   assert.deepEqual([...w.document.querySelectorAll("[data-node] .nd-label")].map((x) => x.textContent), ["Highways", "Transport"]);
   assert.equal(shareOf("Highways"), "67%"); assert.equal(shareOf("Transport"), "33%");
   assert.match(nodeNamed("Highways").textContent, /15 functions/);
@@ -1003,6 +1003,22 @@ await test("a copy saved as a new assessment stays on the same item, and the ope
   // put the name back
   await demoCall("/api/org/item", { action: "rename", id: cw.id, name: "Carriageways" });
 });
+await test("the organisation map is the home page, and the assessments page keeps the list and new assessments", async () => {
+  acceptLeave();
+  w.location.hash = "/assessments";
+  await wait(() => (acceptLeave(), w.document.querySelector("#list-body")), "the assessments page");
+  assert.ok(w.document.querySelector('.hero a[href*="/new"]'), "a new assessment starts here");
+  assert.equal(w.document.querySelector(".nav a[aria-current]").textContent, "Assessments");
+  w.location.hash = "/";
+  await wait(() => w.document.querySelector(".stage [data-hub]"), "the map at home");
+  assert.equal(w.document.querySelector(".nav a[aria-current]").textContent, "Organisation");
+  // an assessment's crumbs lead back to the list, not the map
+  const id = (await demoCall("/api/assessments/list")).assessments.find((a) => a.name === "Northbridge Value for Money 2025-26").id;
+  w.location.hash = `/a/${id}/scorecard`;
+  await wait(() => w.document.querySelector("#ws-title"), "an assessment");
+  assert.match(w.document.querySelector(".crumbs a").getAttribute("href"), /\/assessments$/);
+  assert.equal(w.document.querySelector(".nav a[aria-current]").textContent, "Assessments");
+});
 await test("a page someone has left doesn't paint its error over the next one", async () => {
   acceptLeave();
   w.location.hash = "/a/999999";
@@ -1017,7 +1033,7 @@ await test("the sign-in card offers the Northbridge demonstration beside Sign in
   // an earlier test may leave unsaved changes: say yes to leaving them
   const leave = () => w.document.querySelector("dialog.ask[open] button[value=ok]")?.click();
   leave();
-  w.location.hash = "/";
+  w.location.hash = "/assessments";
   await wait(() => (leave(), w.document.querySelector("#signout") && w.document.querySelector("#list-body") && /Northbridge Value for Money 2025-26/.test(w.document.querySelector("#main").textContent)), "the assessments");
   w.document.querySelector("#signout").click();
   await wait(() => (leave(), w.document.querySelector("#signin")), "the sign-in card");
