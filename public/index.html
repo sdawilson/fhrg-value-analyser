@@ -57,6 +57,12 @@ p { margin: 0 0 1em; }
 .demo-bar .wrap { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; padding-top: 0.5rem; padding-bottom: 0.5rem; }
 .demo-bar label { display: inline-flex; gap: 0.4rem; align-items: center; white-space: nowrap; }
 .demo-bar select { font: inherit; padding: 0.15rem 0.3rem; }
+/* one assessment type, opened from the FHRG website's Tools page */
+.focus-bar { background: var(--haze); border-bottom: 1px solid var(--mist); font-size: 0.95rem; }
+.focus-bar .wrap { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; align-items: center; justify-content: space-between; padding-top: 0.55rem; padding-bottom: 0.55rem; }
+.focus-bar p { margin: 0; }
+.focus-bar strong { color: var(--navy-deep); }
+@media print { .focus-bar { display: none; } }
 
 /* header */
 .site-head { border-bottom: 1px solid var(--haze); background: var(--white); position: relative; z-index: 10; }
@@ -2845,7 +2851,23 @@ const ICON = {
 // ------------------------------------------------------------- state
 const A = { boot: null, me: null, templates: null, assessments: null, ws: null, te: null, compare: [], lastList: null };
 const ROUTE_HASH = !LIVE; // the preview has no server behind it, so its addresses live after the #
-const href = (p) => (ROUTE_HASH ? "#" + p : p);
+
+// ------------------------------------------------------------- one assessment type, from the FHRG website's Tools page
+// The website lists each assessment type as a tool of its own, linking here with ?type= and the type in lower case
+// with dashes (?type=climate-readiness for Climate Readiness). Opened that way, the map, assessments, new assessment,
+// templates, compare and benchmarks list only that type, under a bar that says so and can show every type again.
+// The address decides: links and moves within the page carry ?type= on, so a reload or a new tab keeps it, and
+// opened without it nothing changes. Opening an assessment, the editors and Admin aren't narrowed.
+const typeKey = (s) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 80);
+const Focus = { key: "", label: "", for: "" };
+const inFocus = (x) => !Focus.key || typeKey(x && x.profile_type) === Focus.key;
+const shown = (list) => (Focus.key ? (list || []).filter(inFocus) : list || []);
+function withFocus(p) {
+  if (!Focus.key || !String(p).startsWith("/") || /[?&]type=/.test(p)) return p;
+  const i = p.indexOf("#"), path = i < 0 ? p : p.slice(0, i), frag = i < 0 ? "" : p.slice(i);
+  return `${path}${path.includes("?") ? "&" : "?"}type=${encodeURIComponent(Focus.key)}${frag}`;
+}
+const href = (p) => { const u = withFocus(p); return ROUTE_HASH ? "#" + u : u; };
 
 // ------------------------------------------------------------- talking to the server
 const COOKIE = "fhrg_session";
@@ -3049,6 +3071,7 @@ function location2() {
   return { path: location.pathname.replace(/\/+$/, "") || "/", query: new URLSearchParams(location.search) };
 }
 async function go(path, replace = false) {
+  path = withFocus(path);
   if (!(await leaveOk(path))) return;
   if (ROUTE_HASH) {
     const target = "#" + path;
@@ -3062,6 +3085,8 @@ async function route() {
   const seq = ++navSeq;
   const { path, query } = location2();
   currentPath = path;
+  const key = typeKey(query.get("type") || (ROUTE_HASH ? new URLSearchParams(location.search).get("type") : ""));
+  if (key !== Focus.key) { Focus.key = key; Focus.label = ""; Focus.for = ""; navLinks(); }
   closeMenus();
   document.body.classList.remove("auth-page");
   $$(".nav a").forEach((a) => {
@@ -3071,7 +3096,9 @@ async function route() {
     a.toggleAttribute("aria-current", here);
     if (a.hasAttribute("aria-current")) a.setAttribute("aria-current", "page");
   });
-  if (!A.me && !PUBLIC.has(path)) { if (path !== "/signin") history.replaceState({}, "", href(`/signin?next=${encodeURIComponent(path)}`)); return pageSignin(new URLSearchParams(`next=${encodeURIComponent(path)}`)); }
+  if (!A.me && !PUBLIC.has(path)) { focusBar(path); if (path !== "/signin") history.replaceState({}, "", href(`/signin?next=${encodeURIComponent(path)}`)); return pageSignin(new URLSearchParams(`next=${encodeURIComponent(path)}`)); }
+  await focusReady(path);
+  if (seq !== navSeq) return;
   for (const [re, fn] of ROUTES) {
     const m = path.match(re);
     if (m) {
@@ -3088,6 +3115,46 @@ async function route() {
   setTitle("Not found");
   main().innerHTML = page("Page not found", `<p>There's nothing at this address. <a href="${href("/")}" data-nav>Go to your organisation</a> or <a href="${href("/assessments")}" data-nav>your assessments</a>.</p>`);
 }
+// the type a link from the Tools page asked for: named as its templates name it, or the link is set aside
+async function focusReady(path) {
+  const key = Focus.key;
+  if (key && A.me && Focus.for !== key) {
+    let t = null, known = true;
+    try { t = (await templates()).find(inFocus); } catch { known = false; }
+    if (key !== Focus.key) return;
+    if (t || !known) { Focus.label = t ? t.profile_type : key.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase()); Focus.for = key; }
+    else { dropFocus(); toast(`There's no assessment type called "${key.replace(/-/g, " ")}" here, so every type is shown.`, 6000); }
+  }
+  focusBar(path);
+}
+function focusBar(path = currentPath) {
+  let bar = $("#focus-bar");
+  if (!Focus.key || !A.me || path.startsWith("/admin")) { bar?.remove(); return; }
+  if (!bar) {
+    bar = document.createElement("div");
+    bar.id = "focus-bar"; bar.className = "focus-bar"; bar.setAttribute("role", "region"); bar.setAttribute("aria-label", "Assessment type");
+    $(".site-head").after(bar);
+  }
+  bar.innerHTML = `<div class="wrap"><p><strong>${esc(Focus.label || Focus.key)} only.</strong> The lists show this assessment type's templates and assessments.</p><button type="button" class="btn small secondary" id="focus-all">Show all assessment types</button></div>`;
+  $("#focus-all").addEventListener("click", async () => {
+    dropFocus();
+    // the editors and an open assessment stay as they are; the lists are drawn again with every type
+    if (!/^\/(a|templates)\//.test(currentPath)) await route();
+    toast("Every assessment type is shown.");
+  });
+}
+// back to every type: ?type= comes out of the address, and the links lose it
+function dropFocus() {
+  Focus.key = ""; Focus.label = ""; Focus.for = "";
+  const u = new URL(location.href);
+  u.searchParams.delete("type");
+  const h = u.hash.replace(/^#/, "");
+  if (h.startsWith("/")) { const [p, qs] = h.split("?"); const q = new URLSearchParams(qs || ""); q.delete("type"); u.hash = p + (q.toString() ? `?${q}` : ""); }
+  history.replaceState({}, "", u.pathname + u.search + u.hash);
+  navLinks();
+  focusBar();
+}
+function navLinks() { $$("a[data-path]").forEach((a) => (a.href = href(a.getAttribute("data-path")))); }
 // leaving an assessment or template with unsaved changes
 let leaving = false;
 async function leaveOk(to = "") {
@@ -3122,7 +3189,7 @@ document.addEventListener("click", (e) => {
 window.addEventListener(ROUTE_HASH ? "hashchange" : "popstate", async () => {
   if (location2().path === currentPath) return;
   if (!(await leaveOk(location2().path))) {
-    const back = ROUTE_HASH ? "#" + currentPath : currentPath;
+    const back = href(currentPath);
     history.pushState({}, "", back);
     return;
   }
@@ -3170,7 +3237,7 @@ function pageSignin(q) {
         <div class="field"><label for="si-email">Email</label><input id="si-email" name="email" type="email" autocomplete="email" required></div>
         <div class="field"><label for="si-pw">Password</label><input id="si-pw" name="password" type="password" autocomplete="current-password" required></div>
         <label class="check"><input type="checkbox" name="remember" id="si-remember"> Keep me signed in on this device for 30 days</label>
-        <div class="row"><button class="btn" type="submit">Sign in</button>${demo ? `<a class="btn secondary" href="/demo" id="si-demo">Explore the Northbridge demonstration</a>` : ""}</div>
+        <div class="row"><button class="btn" type="submit">Sign in</button>${demo ? `<a class="btn secondary" href="/demo${Focus.key ? `?type=${encodeURIComponent(Focus.key)}` : ""}" id="si-demo">Explore the Northbridge demonstration</a>` : ""}</div>
         ${LIVE ? "" : `<p class="small muted">In this preview, any email and password will do.</p>`}
       </form></div>
     <p class="small muted"><a href="${esc(fhrg("/forgot"))}">Forgotten your password?</a> · <a href="${esc(fhrg("/register"))}">Join the FHRG</a></p>
@@ -3199,9 +3266,10 @@ const listFilter = { q: "", type: "", year: "" };
 async function pageHome() {
   setTitle("Assessments");
   main().innerHTML = `<div class="wrap page"><p class="muted">Loading your assessments…</p></div>`;
-  const [list, tpls] = await Promise.all([assessments(true), templates()]);
+  const [all, allTpls] = await Promise.all([assessments(true), templates()]);
+  const list = shown(all), tpls = shown(allTpls);
   let bms = [];
-  try { bms = (await api("/api/benchmarks/list")).benchmarks; } catch { /* shown as none */ }
+  try { bms = shown((await api("/api/benchmarks/list")).benchmarks); } catch { /* shown as none */ }
   const types = [...new Set(list.map((a) => a.profile_type).filter(Boolean))].sort();
   const years = [...new Set(list.map((a) => a.reporting_year).filter(Boolean))].sort().reverse();
   const optionSets = groupOptions(list);
@@ -3227,7 +3295,7 @@ async function pageHome() {
       <div class="field search"><label for="f-q">Search</label><input id="f-q" type="search" placeholder="Name, template or person" value="${esc(listFilter.q)}"></div>
       <div class="field"><label for="f-type">Type</label><select id="f-type"><option value="">All types</option>${types.map((t) => `<option ${t === listFilter.type ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>
       <div class="field"><label for="f-year">Reporting year</label><select id="f-year"><option value="">All years</option>${years.map((t) => `<option ${t === listFilter.year ? "selected" : ""}>${esc(t)}</option>`).join("")}</select></div>
-    </div><div id="list-body"></div>` : `<div class="empty"><p><strong>No assessments yet.</strong> Start one from a template, or open a .va2 file saved by the Excel tool.</p>
+    </div><div id="list-body"></div>` : `<div class="empty"><p><strong>No ${Focus.key ? `${esc(Focus.label)} ` : ""}assessments yet.</strong> Start one from a template, or open a .va2 file saved by the Excel tool.</p>
       <div class="row"><a class="btn" href="${href("/new")}" data-nav>${ICON.plus} New assessment</a><a class="btn secondary" href="${href("/open")}" data-nav>Open a file</a></div></div>`}
   </div>`;
   if (!list.length) return;
@@ -3264,7 +3332,7 @@ function groupOptions(list) {
 async function pageNew(q) {
   setTitle("New assessment");
   if (!(await leaveOk())) return;
-  const tpls = await templates(true);
+  const all = await templates(true), tpls = shown(all);
   // started from the map: only the templates that fit the item are offered, and the assessment starts on it
   let item = null;
   if (q && Number(q.get("item"))) {
@@ -3272,7 +3340,7 @@ async function pageNew(q) {
     item = A.org?.items.find((x) => x.id === Number(q.get("item"))) || null;
   }
   const fits = (t) => !item || templateFits(t, item, A.org.items);
-  const pick = q && q.get("template") ? tpls.find((t) => String(t.id) === q.get("template")) : null;
+  const pick = q && q.get("template") ? all.find((t) => String(t.id) === q.get("template")) : null;
   if (pick) return newForm(pick, item && fits(pick) ? item : null);
   const fh = tpls.filter((t) => t.fhrg && fits(t) && (!item || t.visible !== false)), own = tpls.filter((t) => !t.fhrg && t.visible !== false && fits(t));
   const card = (t) => `<article class="tcard"><div class="row" style="justify-content:space-between"><span class="chip">${esc(t.profile_type || "Any type")}</span>${t.is_default ? `<span class="chip navy">FHRG standard</span>` : ""}</div>
@@ -3443,7 +3511,7 @@ async function start() {
     const nav = $("#nav"); const open = !nav.classList.contains("open");
     nav.classList.toggle("open", open); e.currentTarget.setAttribute("aria-expanded", String(open));
   });
-  $$("a[data-path]").forEach((a) => (a.href = href(a.getAttribute("data-path"))));
+  navLinks();
   demoBar();
   try { await boot(); }
   catch (e) {
@@ -4401,7 +4469,7 @@ function factorsCsv() {
 async function pageCompare(q) {
   setTitle("Compare");
   main().innerHTML = `<div class="wrap page"><p class="muted">Loading…</p></div>`;
-  const list = await assessments();
+  const list = shown(await assessments());
   const ids = (q && q.get("ids") ? q.get("ids").split(",").map(Number).filter(Boolean) : A.compare).filter((id) => list.some((a) => a.id === id));
   const groups = groupOptions(list);
   const byStructure = {};
@@ -4628,7 +4696,7 @@ function drawMap() {
   const weightOf = (x) => (x.weight > 0 ? x.weight : 0);
   const shareIn = (x) => { const sibs = x.parent_id ? kids(x.parent_id) : [x], tot = sibs.reduce((a, y) => a + weightOf(y), 0); return tot ? weightOf(x) / tot : 0; };
   const { pts, arcs, lv } = placeAround(children.map(weightOf), 33, 37);
-  const onItem = (id) => (A.mapAs || []).filter((a) => a.org_item_id === id);
+  const onItem = (id) => shown(A.mapAs).filter((a) => a.org_item_id === id);
   const below = BELOW[hub.level], subOf = (x) => {
     const n = kids(x.id).length, b = BELOW[x.level], k = onItem(x.id).length;
     return [b && n ? plural(n, b === "process" ? "process" : b, PLURAL[b]) : "", k ? plural(k, "assessment") : ""].filter(Boolean).join(" · ");
@@ -4709,7 +4777,7 @@ function mapPanel(it, shareIn, children) {
 }
 // the item's assessments: open one, take it off, start one here, or put one you have here
 function mapAssessments(it) {
-  const items = A.org.items, list = A.mapAs || [], tpls = A.templates || [];
+  const items = A.org.items, list = shown(A.mapAs), tpls = shown(A.templates);
   const here = list.filter((a) => a.org_item_id === it.id);
   const where = (a) => items.find((x) => x.id === a.org_item_id)?.name;
   const others = list.filter((a) => a.org_item_id !== it.id && assessmentFits(a, it, items)).sort((a, z) => (a.org_item_id ? 1 : 0) - (z.org_item_id ? 1 : 0) || a.name.localeCompare(z.name));
@@ -4722,7 +4790,7 @@ function mapAssessments(it) {
         <button class="link-btn small" type="button" data-unplace="${a.id}">Take it off the map</button></li>`).join("")}</ul>`
       : `<p class="small muted">None on ${esc(it.name)} yet.</p>`}
     <div class="row">${canStart ? `<a class="btn small" href="${href(`/new?item=${it.id}`)}" data-nav>${ICON.plus} Start an assessment here</a>` : ""}</div>
-    ${canStart ? "" : `<p class="small muted">No template is set for ${esc(it.level)} level${esc(scope)} yet. A template's levels are set in the <a href="${href("/templates")}" data-nav>template editor</a>.</p>`}
+    ${canStart ? "" : `<p class="small muted">No ${Focus.key ? `${esc(Focus.label)} ` : ""}template is set for ${esc(it.level)} level${esc(scope)} yet. A template's levels are set in the <a href="${href("/templates")}" data-nav>template editor</a>.</p>`}
     ${others.length ? `<form class="row ma-place" id="ma-place" novalidate><label class="visually-hidden" for="ma-pick">An assessment you already have, to put on ${esc(it.name)}</label>
       <select id="ma-pick"><option value="">Put one you have here…</option>${others.map((a) => `<option value="${a.id}">${esc(a.name)}${a.org_item_id ? ` (now on ${esc(where(a) || "the map")})` : ""}</option>`).join("")}</select>
       <button class="btn small secondary" type="submit">Put it here</button></form>` : ""}
@@ -4788,7 +4856,7 @@ function bindMapPanel(it) {
 
 async function pageTemplates() {
   setTitle("Templates");
-  const tpls = await templates(true);
+  const tpls = shown(await templates(true));
   const fh = tpls.filter((t) => t.fhrg), own = tpls.filter((t) => !t.fhrg && t.visible !== false), hidden = tpls.filter((t) => !t.fhrg && t.visible === false);
   const can = (t) => A.me.siteAdmin || (!t.fhrg && (t.created_by === A.me.email || A.me.role === "lead"));
   const card = (t) => `<article class="tcard"><div class="row" style="justify-content:space-between"><span class="chip">${esc(t.profile_type || "Any type")}</span>${t.is_default ? `<span class="chip navy">FHRG standard</span>` : ""}</div>
@@ -5234,7 +5302,7 @@ async function saveTe(asCopy = false) {
 // ------------------------------------------------------------- benchmarks
 async function pageBenchmarks() {
   setTitle("Benchmarks");
-  const sets = (await api("/api/benchmarks/list")).benchmarks;
+  const sets = shown((await api("/api/benchmarks/list")).benchmarks);
   main().innerHTML = page("Benchmarks", `
     <div class="grid-2" style="margin-bottom:2rem">
       <div><h2 class="h3">Live comparisons</h2><p>Open any assessment and choose <strong>Benchmark</strong> to compare it with the average of other authorities' shared assessments of the same type, made from the same template, and optionally in the same year or from similar authorities.</p></div>

@@ -25,6 +25,10 @@ await test("the page starts without an error", () => {
   assert.ok(w.document.querySelector("main, #main, #app"));
   assert.ok(w.document.body.textContent.length > 100);
 });
+await test("opened without a link for one assessment type, nothing is narrowed", () => {
+  assert.equal(w.document.querySelector("#focus-bar"), null);
+  assert.ok([...w.document.querySelectorAll("#nav a")].every((a) => !/type=/.test(a.getAttribute("href"))));
+});
 await test("no words about the old edge script are left on the page", () => {
   assert.ok(!/edge script/i.test(html));
 });
@@ -1185,6 +1189,79 @@ await test("the sign-in card offers the Northbridge demonstration beside Sign in
   assert.ok(card.querySelector("img.auth-logo").getAttribute("src").startsWith("data:image/"));
   w.location.hash = "/guidance";
   await wait(() => !w.document.body.classList.contains("auth-page"), "the header to come back on another page");
+});
+// ----- one assessment type, from a link on the FHRG website's Tools page (?type=)
+const typed = async (type) => {
+  const errs = [], v = new VirtualConsole();
+  v.on("jsdomError", (e) => errs.push(e.message));
+  const t = new JSDOM(html, { url: `https://value-analyser.fhrg.co.uk/demo${type ? `?type=${type}` : ""}`, runScripts: "dangerously", pretendToBeVisual: true, virtualConsole: v });
+  await new Promise((r) => setTimeout(r, 400));
+  return { t: t.window, d: t.window.document, errs };
+};
+const settle = async (tw, fn, what) => { for (let i = 0; i < 120; i++) { if (fn()) return; await new Promise((r) => setTimeout(r, 50)); } throw new Error(`Waited for ${what}`); };
+const typesOn = (d) => [...new Set([...d.querySelectorAll(".tcard .chip:not(.navy)")].map((c) => c.textContent))];
+await test("a link can name the type as it's written, too", async () => {
+  // Programme & Project, as written, is the same type as programme-project
+  const { t, d } = await typed("Programme%20%26%20Project");
+  await settle(t, () => d.querySelector("#focus-bar"), "the bar");
+  assert.match(d.querySelector("#focus-bar").textContent, /Programme & Project only/);
+  assert.match(d.querySelector('#nav a[data-path="/templates"]').getAttribute("href"), /\?type=programme-project$/);
+  t.close();
+});
+await test("a link for one assessment type lists only that type, under a bar that says so", async () => {
+  const { t, d, errs } = await typed("best-practice-carbon");
+  await settle(t, () => d.querySelector("#focus-bar") && d.querySelector("[data-node]"), "the map and the bar");
+  assert.match(d.querySelector("#focus-bar").textContent, /Best Practice Carbon only/);
+  assert.ok(d.querySelector("#focus-all"), "a way back to every type");
+  // the map counts that type only
+  assert.match(d.querySelector("[data-node]").getAttribute("aria-label"), /Highways: .*, 2 assessments\./);
+  t.location.hash = "/templates";
+  await settle(t, () => /Scorecard templates/.test(d.querySelector("#main").textContent) && d.querySelector(".tcard .chip"), "the templates");
+  assert.deepEqual(typesOn(d), ["Best Practice Carbon"]);
+  t.location.hash = "/assessments";
+  await settle(t, () => d.querySelector("#list-body tbody tr"), "the assessments");
+  const kinds = [...d.querySelectorAll("#list-body tbody tr td:nth-child(2)")].map((c) => c.textContent);
+  assert.ok(kinds.length && kinds.every((k) => k === "Best Practice Carbon"), kinds.join(", "));
+  t.location.hash = "/new";
+  await settle(t, () => /New assessment/.test(d.querySelector("#main").textContent) && d.querySelector(".tcard .chip"), "the new assessment page");
+  assert.deepEqual(typesOn(d), ["Best Practice Carbon"]);
+  t.location.hash = "/compare";
+  await settle(t, () => d.querySelector("#pick"), "the compare page");
+  assert.ok([...d.querySelectorAll("#pick .sub")].every((x) => /^Best Practice Carbon/.test(x.textContent)));
+  assert.deepEqual(errs.filter((e) => !/Not implemented/.test(e)), []);
+  t.close();
+});
+await test("the type rides along in every link, and Show all assessment types takes it out", async () => {
+  const { t, d } = await typed("best-practice-carbon");
+  await settle(t, () => d.querySelector("#focus-bar"), "the bar");
+  assert.ok([...d.querySelectorAll("#nav a")].every((a) => /\?type=best-practice-carbon$/.test(a.getAttribute("href"))), "the menu");
+  t.location.hash = d.querySelector('#nav a[data-path="/templates"]').getAttribute("href").slice(1);
+  await settle(t, () => d.querySelector(".tcard [data-nav]"), "the templates");
+  assert.match(d.querySelector(".tcard a[href*='/new?template=']").getAttribute("href"), /^#\/new\?template=\d+&type=best-practice-carbon$/, "a card's link");
+  d.querySelector("#focus-all").click();
+  await settle(t, () => !d.querySelector("#focus-bar") && typesOn(d).length > 1, "every type");
+  assert.ok(typesOn(d).includes("Value for Money (Highways)") && typesOn(d).includes("Options Analysis"));
+  assert.doesNotMatch(t.location.href, /type=/, "out of the address");
+  assert.ok([...d.querySelectorAll("#nav a")].every((a) => !/type=/.test(a.getAttribute("href"))), "and out of the links");
+  t.close();
+});
+await test("a link for a type that isn't there shows every type, and says so", async () => {
+  // Climate Readiness stays with members, so the demonstration hasn't got it
+  const { t, d } = await typed("climate-readiness");
+  await settle(t, () => d.querySelector(".toast") && d.querySelector("[data-node]"), "the map");
+  assert.match(d.querySelector(".toast").textContent, /no assessment type called "climate readiness"/);
+  assert.equal(d.querySelector("#focus-bar"), null);
+  assert.doesNotMatch(t.location.href, /type=/);
+  t.close();
+});
+await test("signed out, the sign-in card keeps the type, and its demonstration opens on it", async () => {
+  const { t, d } = await typed("best-practice-carbon");
+  await settle(t, () => d.querySelector("#signout"), "signed in");
+  d.querySelector("#signout").click();
+  await settle(t, () => d.querySelector("#si-demo"), "the sign-in card");
+  assert.equal(d.querySelector("#focus-bar"), null, "no bar on the sign-in card");
+  assert.equal(d.querySelector("#si-demo").getAttribute("href"), "/demo?type=best-practice-carbon");
+  t.close();
 });
 dom.window.close();
 process.exit(failures ? 1 : 0);
